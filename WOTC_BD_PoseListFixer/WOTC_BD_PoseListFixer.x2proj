@@ -1,0 +1,39 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="12.0" DefaultTargets="Default" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <Guid>7adb7a74-539b-4f51-b69f-dc24db73e7f5</Guid>
+    <Name>WOTC_BD_PoseListFixer</Name>
+    <Description>Description of My XCOM 2 Mod.</Description>
+    <SteamPublishID>0</SteamPublishID>
+    <AssemblyName>WOTC_BD_PoseListFixer</AssemblyName>
+    <RootNamespace>WOTC_BD_PoseListFixer</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Folder Include="Config\" />
+    <Folder Include="Localization\" />
+    <Folder Include="Src\" />
+    <Folder Include="Src\WOTC_BD_PoseListFixer\" />
+    <Folder Include="Src\WOTC_BD_PoseListFixer\Classes\" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="ReadMe.txt" />
+    <Content Include="ModPreview.jpg" />
+    <Content Include="Config\XComEditor.ini" />
+    <Content Include="Config\XComEngine.ini" />
+    <Content Include="Config\XComGame.ini" />
+    <Content Include="Localization\XComGame.int" />
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFixHelpers.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UISL_NMD_Photobooth.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UITactical_Photobooth_PoseFix.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIArmory_Photobooth_PoseFix.uc">
+      <SubType>Content</SubType>
+    </Content>
+  </ItemGroup>
+  <Import Project="$(MSBuildLocalExtensionPath)\XCOM2.targets" />
+</Project>
