@@ -3,13 +3,12 @@ class UITactical_Photobooth_PoseFix extends UITactical_Photobooth;
 simulated function OnInit()
 {
 	super.OnInit();
-	`log("Ran PoseFix OnInit - NMDPhotoboothActive Status:" @ class'UIPoseFixHelpers'.default.NMDPhotoboothActive,,'BDLOG');
+	//`log("Ran PoseFix OnInit - NMDPhotoboothActive Status:" @ class'UIPoseFixHelpers'.default.NMDPhotoboothActive,,'BDLOG');
 	If(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
 	{
 	//Do any stuff here that is specific to Nice Mission Briefings (setting formations, getting soldiers etc.)
 	NMD_InitializeFormation();
 	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex = 0;
-	class'UIPoseFixHelpers'.default.NMDPhotoboothActive = false;
 	}
 }
 
@@ -78,12 +77,17 @@ function PopulateData()
 			class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = 0;
 			class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
 			class'UIPoseFixHelpers'.default.UIPhotoboothPoseOffset = 0;	
+			if(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
+			{
 			UIButton(self.GetChildByName('soldierToggle',false)).Remove();
 			soldierToggleButton = Spawn(class'UIButton',self);
-			soldierToggleButton.InitButton('soldierToggle',class'UIUtilities_Strategy'.default.m_strFast @ class'UIUtilities_Text'.default.m_strGenericToggle$":"@ arrSoldiers[class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex].GetFullName(),onToggleNextSoldier, eUIButtonStyle_HOTLINK_BUTTON);
-			soldierToggleButton.ResizeToText = false;
+			soldierToggleButton.InitButton('soldierToggle', class'UIUtilities_Strategy'.default.m_strFast @ class'UIUtilities_Text'.default.m_strGenericToggle $ " : " $ arrSoldiers[class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex + class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex].GetFullName(),onToggleNextSoldier, eUIButtonStyle_HOTLINK_BUTTON);
+			soldierToggleButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_Y_TRIANGLE);
+			soldierToggleButton.SetResizeToText(false);
+			soldierToggleButton.SetTextAlign("center");
 			soldierToggleButton.SetPosition(75,700);
-			soldierToggleButton.SetSize(375,75);
+			soldierToggleButton.SetWidth(410);			
+			}			
 			PopulateDefaultList(i);
 			break;
 		case eUIPropagandaType_Formation:
@@ -99,11 +103,9 @@ function PopulateData()
 			if(UIButton(self.GetChildByName('previousItems',false)) == none)
 			{
 			previousItemsButton = Spawn(class'UIButton',self).InitButton('previousItems', class'UIMPShell_Leaderboards'.default.m_strPreviousPageText, onSelectPrevious, eUIButtonStyle_HOTLINK_BUTTON);		
-			previousItemsButton.SetWidth(300);
 			previousItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_LEFT);
 			previousItemsButton.SetPosition(75,864);
 			nextItemsButton = Spawn(class'UIButton',self).InitButton('nextItems', class'UIMPShell_Leaderboards'.default.m_strNextPageText, onSelectNext, eUIButtonStyle_HOTLINK_BUTTON);			
-			nextItemsButton.SetWidth(300);				
 			nextItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_RIGHT);
 			nextItemsButton.SetPosition(350,864);		
 			}
@@ -183,8 +185,8 @@ function PopulatePoseList(out int Index)
 	local int currentPage;
 
 	GetAnimationData(m_iLastTouchedSoldierIndex, AnimationNames, AnimationIndex);
-	`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
-	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	//`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
+	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	
 	// If we try to start at a number greater than the number of poses, go back to the first page:
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex > AnimationNames.Length)
@@ -213,8 +215,8 @@ function PopulatePoseList(out int Index)
 		{
 		endIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex;
 		}
-	`log("Building List:",,'BDLOG');
-	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	//`log("Building List:",,'BDLOG');
+	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
 	{
 		GetListItem(Index++).UpdateDataDescription(AnimationNames[i], OnConfirmPose); //bsg-jneal (5.16.17): now changing pose on selection change
@@ -275,6 +277,9 @@ function OnCancel()
 
 	local array<AnimationPoses> arrAnimations;
 	local int CurrAnimationIndex;
+	local XComPresentationLayer Pres;
+
+	Pres = `PRES;	
 
 	CurrAnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
 
@@ -283,13 +288,17 @@ function OnCancel()
 
 	switch (currentState)
 	{
-	case eUIPropagandaType_Base:
-		//bsg-hlee (05.12.17): If a picture has not been taken then show the popup.
-		if(!bHasTakenPicture)
-			DestructiveActionPopup();
-		else //Skip the popup and just go to the cleanup and close of the screen.
-			OnDestructiveActionPopupExitDialog('eUIAction_Accept');
-		//bsg-hlee (05.12.17): End
+	case eUIPropagandaType_Base:			
+			If(`ISCONTROLLERACTIVE && class'UIPoseFixHelpers'.default.NMDPhotoboothActive == false)
+			{
+			//`log("Should be super closing screen here - Bool status:" @ class'UIPoseFixHelpers'.default.NMDPhotoboothActive,,'BDLOG');
+			CloseScreen();
+			Pres.UIMissionSummaryScreen();
+			}
+			else
+			{
+			CloseScreen();
+			}
 		break;
 	
 	case eUIPropagandaType_Soldier:
@@ -377,40 +386,61 @@ function NMD_InitializeFormation()
 	SetFormation(FormationIndex);
 }
 
-function CreatePosterCallback(StateObjectReference UnitRef)
+function GenerateDefaultSoldierSetup()
 {
-	If(class'UIPoseFixHelpers'.default.CloseAfterPhotoTaken == true)
-		{
-		`log("Closing after photo & setting var false");
-		bWaitingOnPhoto = false;
-		CloseScreen();
-		class'UIPoseFixHelpers'.default.CloseAfterPhotoTaken = false;
-		}
-	Else
-		{
-		`log("Calling parent callback");
-		super.CreatePosterCallback(UnitRef);
-		}
+	local array<XComGameState_Unit> arrSoldiers;
+	local int soldierIndex; 
+
+	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
+	
+	soldierIndex = class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex;
+
+	if(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
+	{
+		`log("Setting soldier index:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex @ "Name:" @ arrSoldiers[soldierIndex].GetFullName());
+		`PHOTOBOOTH.SetSoldier(0, arrSoldiers[soldierIndex].GetReference());
+		DefaultSetupSettings.PossibleSoldiers.AddItem(arrSoldiers[soldierIndex].GetReference());
+		super(UIPhotoboothBase).GenerateDefaultSoldierSetup();
+	}
+	else
+	{
+	super.GenerateDefaultSoldierSetup();
+	}	
 }
 
 simulated function CloseScreen()
-{
+{	
+	class'Engine'.static.GetEngine().GameViewport.bRenderEmptyScene = false;
 	`PRESBASE.GetPhotoboothMovie().RemoveScreen(`PHOTOBOOTH.m_backgroundPoster);
-	Movie.Pres.UICloseProgressDialog();class'Engine'.static.GetEngine().GameViewport.bRenderEmptyScene = false;
 	Movie.Stack.Pop(self);
 	Movie.Pres.PlayUISound(eSUISound_MenuClose);
-	class'UIPoseFixHelpers'.default.CloseAfterPhotoTaken = false;
+	class'UIPoseFixHelpers'.default.NMDPhotoboothActive = false;	
 }
 
 simulated function bool OnUnrealCommand(int ucmd, int arg)
 {
+	if(`ISCONTROLLERACTIVE && !m_bGamepadCameraActive && !CheckInputIsReleaseOrDirectionRepeat(ucmd, arg))
+	return false;	
+
 	switch (ucmd)
 	{
 	case class'UIUtilities_Input'.const.FXS_DPAD_LEFT:
+		if(!m_bGamepadCameraActive)
+		{
 		OnSelectPrevious();
+		}
 		return true;
 	case class'UIUtilities_Input'.const.FXS_DPAD_RIGHT:		
+		if(!m_bGamepadCameraActive)
+		{
 		OnSelectNext();
+		}
+		return true;
+	case class'UIUtilities_Input'.const.FXS_BUTTON_Y:
+		onToggleNextSoldier();
+		return true;
+	case class'UIUtilities_Input'.const.FXS_BUTTON_B:
+		onCancel();
 		return true;
 	case class'UIUtilities_Input'.const.FXS_KEY_F:
 		if (IsMouseInPoster())
@@ -428,28 +458,61 @@ simulated function bool OnUnrealCommand(int ucmd, int arg)
 	return super.OnUnrealCommand(ucmd, arg);
 }
 
+function CreatePosterCallback(StateObjectReference UnitRef)
+{
+	If(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
+	{
+	bWaitingOnPhoto = false;
+	`PRESBASE.GetPhotoboothMovie().RemoveScreen(`PHOTOBOOTH.m_backgroundPoster);
+	Movie.Pres.UICloseProgressDialog();
+	CloseScreen();
+	}
+	else
+	{
+	super.CreatePosterCallback(UnitRef);
+	}
+}
+
 function onToggleNextSoldier(optional UIButton soldierToggle)
 {
-	local int i;
+	local int a,b,c, RandAnim, CurrAnimationIndex;
 	local array<XComGameState_Unit> arrSoldiers;
+	local array<AnimationPoses> arrAnimations;
 
 	NMD_InitializeFormation();
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
-	for(i=0; i < arrSoldiers.Length; ++i)
-	{
-	`log("Array index:" @ i @ "Soldier:" @ arrSoldiers[i].GetFullName @ "Array size:" @ arrSoldiers.Length,,'BDLOG');
-	}
-		
-	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex += 1;
 
-	if(class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex > arrSoldiers.Length-1)
+	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex += 1;
+	
+	a = class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex;
+	b = class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex;
+	c = a + b;
+		
+	// If we go off the end, set both to 0
+	`log("c:" @ c @ "arrSoldiers length:" @ arrSoldiers.Length @ "Photobooth config var:" @ class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex @ "Debrief Var:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
+	if(c > arrSoldiers.Length-1)
 	{
+	class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex = 0;
 	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex = 0;
 	}
-
-	i = class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex;
-	`log("i:"@i,,'BDLOG');
-	`PHOTOBOOTH.SetSoldier(0, arrSoldiers[i].GetReference());	
+	//`log("i:"@i,,'BDLOG');
+	// Fix text, se
+	`PHOTOBOOTH.SetSoldier(0, arrSoldiers[c].GetReference());
+	`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO, DefaultSetupSettings.TextLayoutState, DefaultSetupSettings);
+	if (DefaultSetupSettings.GeneratedText.Length <= 0)
+		{
+			`PHOTOBOOTH.FillDefaultText(DefaultSetupSettings);
+		}	
+	//`log("Finished sorting out text",,'BDLOG');
+	//CurrAnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
+	//		`log("currindex:" @ CurrAnimationIndex @  "arrAnims length:" @ arrAnimations.Length);
+	//		if (arrAnimations.Length > 0)
+	//		{			
+	//			RandAnim = `SYNC_RAND(arrAnimations.length);
+	//			`log("Array Length:" @ arrAnimations.length @ "RandAnim:" @ RandAnim,,'BDLOG');
+	//			`PHOTOBOOTH.SetSoldierAnim(m_iLastTouchedSoldierIndex, arrAnimations[RandAnim].AnimationName, arrAnimations[RandAnim].AnimationOffset);
+	//		}
 	NeedsPopulateData();
 }
+

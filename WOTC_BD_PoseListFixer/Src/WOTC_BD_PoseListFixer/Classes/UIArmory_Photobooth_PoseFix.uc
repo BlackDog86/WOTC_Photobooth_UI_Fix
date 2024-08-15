@@ -75,11 +75,9 @@ function PopulateData()
 			if(UIButton(self.GetChildByName('previousItems',false)) == none)
 			{
 			previousItemsButton = Spawn(class'UIButton',self).InitButton('previousItems', class'UIMPShell_Leaderboards'.default.m_strPreviousPageText, onSelectPrevious,eUIButtonStyle_HOTLINK_BUTTON);		
-			previousItemsButton.SetWidth(300);
 			previousItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_LEFT);
 			previousItemsButton.SetPosition(75,864);
-			nextItemsButton = Spawn(class'UIButton',self).InitButton('nextItems', class'UIMPShell_Leaderboards'.default.m_strNextPageText, onSelectNext, eUIButtonStyle_HOTLINK_BUTTON);			
-			nextItemsButton.SetWidth(300);				
+			nextItemsButton = Spawn(class'UIButton',self).InitButton('nextItems', class'UIMPShell_Leaderboards'.default.m_strNextPageText, onSelectNext, eUIButtonStyle_HOTLINK_BUTTON);		
 			nextItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_RIGHT);
 			nextItemsButton.SetPosition(350,864);	
 			}
@@ -259,11 +257,7 @@ function OnCancel()
 	switch (currentState)
 	{
 	case eUIPropagandaType_Base:
-		//bsg-hlee (05.12.17): If a picture has not been taken then show the popup.
-		if(!bHasTakenPicture)
-			DestructiveActionPopup();
-		else //Skip the popup and just go to the cleanup and close of the screen.
-			OnDestructiveActionPopupExitDialog('eUIAction_Accept');
+		CloseScreen();
 		//bsg-hlee (05.12.17): End
 		break;
 	
@@ -328,13 +322,25 @@ function OnCancel()
 
 simulated function bool OnUnrealCommand(int ucmd, int arg)
 {
+	if(`ISCONTROLLERACTIVE && !m_bGamepadCameraActive && !CheckInputIsReleaseOrDirectionRepeat(ucmd, arg))
+	return false;
+
 	switch (ucmd)
-	{
+	{	
 	case class'UIUtilities_Input'.const.FXS_DPAD_LEFT:
+		if(!m_bGamepadCameraActive)
+		{
 		OnSelectPrevious();
+		}
 		return true;
 	case class'UIUtilities_Input'.const.FXS_DPAD_RIGHT:		
+		if(!m_bGamepadCameraActive)
+		{
 		OnSelectNext();
+		}
+		return true;
+	case class'UIUtilities_Input'.const.FXS_BUTTON_B:
+		onCancel();
 		return true;	
 	}
 	return super.OnUnrealCommand(ucmd, arg);
