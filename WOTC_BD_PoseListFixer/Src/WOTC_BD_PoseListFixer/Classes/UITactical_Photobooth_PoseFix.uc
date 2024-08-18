@@ -28,14 +28,30 @@ function OnSetPose(UIList ContainerList, int ItemIndex)
 function PopulateData()
 {
 	//bsg-jneal (5.16.17): now returning to original menu index when leaving soldier or pose selection
-	local int i, previousListIndex;
+	local int i, previousListIndex, soldierIndex;
 	local UIButton nextItemsButton, previousItemsButton, soldierToggleButton;
-	local array<XComGameState_Unit> arrSoldiers;
+	local array<XComGameState_Unit> arrSoldiers, arrValidSoldiers;
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
-
-	previousListIndex = -1;		
 	
+	arrValidSoldiers.length = 0;
+
+	for (i = 0; i < arrSoldiers.Length; ++i) // Check that we are not adding more than 6 units as no formation holds more than 6.
+	{
+		if (arrSoldiers[i].UnitIsValidForPhotobooth())
+		{
+			arrValidSoldiers.additem(arrSoldiers[i]);
+		}
+	}
+
+	previousListIndex = -1;	
+	
+	soldierIndex = class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex + class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex;
+	if(soldierIndex == -1)
+	{
+	soldierIndex = 0;
+	}
+		
 	//bsg-jedwards (5.1.17) : Check if the state changed so we can clear the list items and remake them as some may have changed drastically
 	if(currentState != lastState)
 	{
@@ -81,7 +97,7 @@ function PopulateData()
 			{
 			UIButton(self.GetChildByName('soldierToggle',false)).Remove();
 			soldierToggleButton = Spawn(class'UIButton',self);
-			soldierToggleButton.InitButton('soldierToggle', class'UIUtilities_Strategy'.default.m_strFast @ class'UIUtilities_Text'.default.m_strGenericToggle $ " : " $ arrSoldiers[class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex + class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex].GetFullName(),onToggleNextSoldier, eUIButtonStyle_HOTLINK_BUTTON);
+			soldierToggleButton.InitButton('soldierToggle', class'UIUtilities_Strategy'.default.m_strFast @ class'UIUtilities_Text'.default.m_strGenericToggle $ " : " $ arrValidSoldiers[soldierIndex].GetFullName(),onToggleNextSoldier, eUIButtonStyle_HOTLINK_BUTTON);
 			soldierToggleButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_Y_TRIANGLE);
 			soldierToggleButton.SetResizeToText(false);
 			soldierToggleButton.SetTextAlign("center");
@@ -388,18 +404,26 @@ function NMD_InitializeFormation()
 
 function GenerateDefaultSoldierSetup()
 {
-	local array<XComGameState_Unit> arrSoldiers;
-	local int soldierIndex; 
+	local array<XComGameState_Unit> arrSoldiers, arrValidSoldiers;
+	local int soldierIndex, i; 
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
 	
+	for (i = 0; i < arrSoldiers.Length; ++i) // Check that we are not adding more than 6 units as no formation holds more than 6.
+	{
+		if (arrSoldiers[i].UnitIsValidForPhotobooth())
+		{
+			arrValidSoldiers.additem(arrSoldiers[i]);
+		}
+	}
+
 	soldierIndex = class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex;
 
 	if(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
 	{
 		`log("Setting soldier index:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex @ "Name:" @ arrSoldiers[soldierIndex].GetFullName());
-		`PHOTOBOOTH.SetSoldier(0, arrSoldiers[soldierIndex].GetReference());
-		DefaultSetupSettings.PossibleSoldiers.AddItem(arrSoldiers[soldierIndex].GetReference());
+		`PHOTOBOOTH.SetSoldier(0, arrValidSoldiers[soldierIndex].GetReference());
+		DefaultSetupSettings.PossibleSoldiers.AddItem(arrValidSoldiers[soldierIndex].GetReference());
 		super(UIPhotoboothBase).GenerateDefaultSoldierSetup();
 	}
 	else
@@ -475,30 +499,41 @@ function CreatePosterCallback(StateObjectReference UnitRef)
 
 function onToggleNextSoldier(optional UIButton soldierToggle)
 {
-	local int a,b,c, RandAnim, CurrAnimationIndex;
-	local array<XComGameState_Unit> arrSoldiers;
+	local int a,b,c, i, RandAnim, CurrAnimationIndex;
+	local array<XComGameState_Unit> arrSoldiers, arrValidSoldiers;
 	local array<AnimationPoses> arrAnimations;
 
 	NMD_InitializeFormation();
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
 
-	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex += 1;
+	//Clear the array
+	arrValidSoldiers.length = 0;
+
+	for (i = 0; i < arrSoldiers.Length; ++i) // Check that we are not adding more than 6 units as no formation holds more than 6.
+	{
+		if (arrSoldiers[i].UnitIsValidForPhotobooth())
+		{
+			arrValidSoldiers.additem(arrSoldiers[i]);
+		}
+	}	
 	
-	a = class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex;
+	a = class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex + 1;
 	b = class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex;
 	c = a + b;
 		
 	// If we go off the end, set both to 0
-	`log("c:" @ c @ "arrSoldiers length:" @ arrSoldiers.Length @ "Photobooth config var:" @ class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex @ "Debrief Var:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
-	if(c > arrSoldiers.Length-1)
+	`log("c:" @ c @ "arrValidSoldiers length:" @ arrValidSoldiers.Length @ "Photobooth config var:" @ class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex @ "Debrief Var:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
+	if(c >= arrValidSoldiers.Length)
 	{
 	class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex = 0;
 	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex = 0;
+	c = 0;
 	}
+	
 	//`log("i:"@i,,'BDLOG');
 	// Fix text, se
-	`PHOTOBOOTH.SetSoldier(0, arrSoldiers[c].GetReference());
+	`PHOTOBOOTH.SetSoldier(0, arrValidSoldiers[c].GetReference());
 	`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO, DefaultSetupSettings.TextLayoutState, DefaultSetupSettings);
 	if (DefaultSetupSettings.GeneratedText.Length <= 0)
 		{
@@ -513,6 +548,11 @@ function onToggleNextSoldier(optional UIButton soldierToggle)
 	//			`log("Array Length:" @ arrAnimations.length @ "RandAnim:" @ RandAnim,,'BDLOG');
 	//			`PHOTOBOOTH.SetSoldierAnim(m_iLastTouchedSoldierIndex, arrAnimations[RandAnim].AnimationName, arrAnimations[RandAnim].AnimationOffset);
 	//		}
-	NeedsPopulateData();
+	if(c != 0)
+	{
+	class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex += 1;
+	}
+	
+	NeedsPopulateData();	
 }
 

@@ -25,6 +25,12 @@
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFixHelpers.uc">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_NextClickWrapper.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_PreviousClickWrapper.uc">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UISL_NMD_Photobooth.uc">
       <SubType>Content</SubType>
     </Content>

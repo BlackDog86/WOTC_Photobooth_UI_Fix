@@ -345,3 +345,9 @@ simulated function bool OnUnrealCommand(int ucmd, int arg)
 	}
 	return super.OnUnrealCommand(ucmd, arg);
 }
+
+simulated function CloseScreen()
+{
+	`PRESBASE.GetPhotoboothMovie().RemoveScreen(`PHOTOBOOTH.m_backgroundPoster);
+	super.CloseScreen();
+}
