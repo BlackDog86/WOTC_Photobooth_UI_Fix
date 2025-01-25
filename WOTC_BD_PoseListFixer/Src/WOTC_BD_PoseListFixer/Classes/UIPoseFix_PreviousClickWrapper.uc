@@ -11,7 +11,7 @@ function PreviousButtonPassIndex(UIButton MyPreviousButton)
 	
 	for (i = 0; i < arrSoldiers.Length; ++i) // Check that we are not adding more than 6 units as no formation holds more than 6.
 	{
-		if (arrSoldiers[i].UnitIsValidForPhotobooth())
+		if (class'UIPoseFixHelpers'.static.IsValidNMDPhotoboothSoldier(arrSoldiers[i]))
 		{
 			arrValidSoldiers.additem(arrSoldiers[i]);
 		}
@@ -26,7 +26,6 @@ function PreviousButtonPassIndex(UIButton MyPreviousButton)
 			{
 			class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex = arrValidSoldiers.Length - 1;
 			}		
-			`log("Updating soldier index - new index:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
-	}
-	`log("OnPrevious Click none, bailing",,'BDLOG');	
+			//`log("Updating soldier index - new index:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
+	}	
 }

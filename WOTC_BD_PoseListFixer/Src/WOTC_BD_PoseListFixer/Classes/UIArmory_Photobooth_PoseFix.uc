@@ -5,7 +5,7 @@ function OnSetPose(UIList ContainerList, int ItemIndex)
 	local array<AnimationPoses> arrAnimations;
 	local int CurrAnimationIndex;
 
-	CurrAnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
+	CurrAnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
 
 	if (List.SelectedIndex != CurrAnimationIndex)
 	{
@@ -157,8 +157,9 @@ function PopulatePoseList(out int Index)
 	local int currentPage;
 
 	GetAnimationData(m_iLastTouchedSoldierIndex, AnimationNames, AnimationIndex);
-	`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
-	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	
+	//`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
+	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	
 	// If we try to start at a number greater than the number of poses, go back to the first page:
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex > AnimationNames.Length)
@@ -187,8 +188,8 @@ function PopulatePoseList(out int Index)
 		{
 		endIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex;
 		}
-	`log("Building List:",,'BDLOG');
-	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	//`log("Building List:",,'BDLOG');
+	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
 	{
 		GetListItem(Index++).UpdateDataDescription(AnimationNames[i], OnConfirmPose); //bsg-jneal (5.16.17): now changing pose on selection change
@@ -247,9 +248,8 @@ function OnCancel()
 {
 
 	local array<AnimationPoses> arrAnimations;
-	local int CurrAnimationIndex;
 
-	CurrAnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
+	`PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
 
 	if (bWaitingOnPhoto)
 		return;
@@ -350,4 +350,129 @@ simulated function CloseScreen()
 {
 	`PRESBASE.GetPhotoboothMovie().RemoveScreen(`PHOTOBOOTH.m_backgroundPoster);
 	super.CloseScreen();
+}
+
+function int SetRandomAnimationPoseForSoldier(int LocationIndex, optional bool bPreventDuplicates = false, optional out array<AnimationPoses> arrAnimationsAlreadyUsed)
+{
+	local array<AnimationPoses> arrAnimations, arrOrigAnimations;
+	local int AnimationIndex, i, Rolls;
+	local XComGameState_Unit Unit;
+	local array<Photobooth_AnimationFilterType> ClassFilters; // Issue #309
+	local Photobooth_AnimationFilterType ClassFilter;
+	local bool bUseClassPose, bPoseNotFound;
+
+	AnimationIndex = 0;
+	if (LocationIndex >= 0 && LocationIndex < `PHOTOBOOTH.m_arrUnits.Length && `PHOTOBOOTH.m_arrUnits[locationIndex].UnitRef.ObjectID > 0)
+	{
+		`PHOTOBOOTH.GetAnimations(LocationIndex, arrOrigAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier, true);
+
+		Rolls = bPreventDuplicates ? 100 : 1;
+		while (--Rolls >= 0)
+		{
+			arrAnimations = arrOrigAnimations;
+			ClassFilter = ePAFT_None;
+
+			Unit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(`PHOTOBOOTH.m_arrUnits[locationIndex].UnitRef.ObjectID));
+			if (Unit != none)
+			{
+				// Start Issue #309
+				ClassFilters = class'X2PhotoboothHelpers'.static.GetClassFiltersForClass(Unit.GetSoldierClassTemplateName());
+				ClassFilter = ClassFilters[0];
+				// End Issue #309
+			}
+
+			if (ClassFilter != ePAFT_None && DefaultSetupSettings.TextLayoutState != ePBTLS_DeadSoldier)
+			{
+				bUseClassPose = false;
+				for (i = 0; i < m_arrClassPoseChances.length; ++i)
+				{
+					if (m_arrClassPoseChances[i].AnimType == ClassFilter)
+					{
+						bUseClassPose = `SYNC_RAND(100) < m_arrClassPoseChances[i].Chance;
+						break;
+					}
+				}
+
+				if (bUseClassPose)
+				{
+					for (i = 0; i < arrAnimations.length; ++i)
+					{
+						if (arrAnimations[i].AnimType != ClassFilter)
+						{
+							arrAnimations.Remove(i--, 1);
+						}
+					}
+				}
+			}
+
+			AnimationIndex = `SYNC_RAND(arrAnimations.length);
+
+			if (bPreventDuplicates)
+			{
+				bPoseNotFound = true;
+				for (i = 0; i < arrAnimationsAlreadyUsed.Length; ++i)
+				{
+					if (arrAnimationsAlreadyUsed[i].AnimationName == arrAnimations[AnimationIndex].AnimationName &&
+						arrAnimationsAlreadyUsed[i].AnimationOffset == arrAnimations[AnimationIndex].AnimationOffset)
+					{
+						bPoseNotFound = false;
+						break;
+					}
+				}
+
+				if (bPoseNotFound)
+				{
+					arrAnimationsAlreadyUsed.AddItem(arrAnimations[AnimationIndex]);
+					Rolls = 0;
+				}
+			}
+		}
+
+		`PHOTOBOOTH.SetSoldierAnim(LocationIndex, arrAnimations[AnimationIndex].AnimationName, arrAnimations[AnimationIndex].AnimationOffset);
+	}
+
+	return AnimationIndex;
+}
+
+function GetAnimationData(int LocationIndex, out array<String> outAnimationNames, out int outAnimationIndex)
+{
+	local array<AnimationPoses> arrAnimations;
+	local int i;
+
+	outAnimationIndex = `PHOTOBOOTH.GetAnimations(LocationIndex, arrAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
+
+	outAnimationNames.Length = 0;
+	for (i = 0; i < arrAnimations.Length; ++i)
+	{
+		outAnimationNames.AddItem(arrAnimations[i].AnimationDisplayName);
+	}
+}
+
+function SetupCamera()
+{
+	Super.SetupCamera();
+	m_kCamState.m_fMinCameraDistance = class'UIPoseFixHelpers'.default.StratMinZoomDistance;
+	m_kCamState.m_fMaxCameraDistance = class'UIPoseFixHelpers'.default.StratMaxZoomDistance;
+	m_fCameraFOV = class'UIPoseFixHelpers'.default.StratFOV;
+}
+
+function ZoomIn()
+{
+	m_kCamState.AddZoom(-class'UIPoseFixHelpers'.default.StratZoomInOutAmount);
+}
+function ZoomOut()
+{
+	m_kCamState.AddZoom(class'UIPoseFixHelpers'.default.StratZoomInOutAmount);
+}
+
+function TPOV GetCameraPOV()
+{
+	local TPOV outPOV;
+
+	if(m_kHQCamera != none)
+		m_kHQCamera.GetCameraViewPoint(outPOV.Location, outPOV.Rotation);
+
+	outPOV.FOV = class'UIPoseFixHelpers'.default.StratFOV;
+
+	return outPOV;
 }
