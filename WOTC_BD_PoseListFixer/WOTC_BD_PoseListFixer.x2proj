@@ -16,6 +16,9 @@
     <Folder Include="Src\WOTC_BD_PoseListFixer\Classes\" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Config\XComContent.ini">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="ReadMe.txt" />
     <Content Include="ModPreview.jpg" />
     <Content Include="Config\XComEditor.ini" />
@@ -29,6 +32,9 @@
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_PreviousClickWrapper.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_SaveLayout.uc">
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UISL_NMD_Photobooth.uc">
