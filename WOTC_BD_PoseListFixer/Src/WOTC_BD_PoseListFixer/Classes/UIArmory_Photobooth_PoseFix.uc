@@ -1,11 +1,18 @@
 class UIArmory_Photobooth_PoseFix extends UIArmory_Photobooth;
 
+`include(WOTC_BD_PoseListFixer\Src\ModConfigMenuAPI\MCM_API_CfgHelpers.uci)
+
 simulated function OnInit()
 {	
 	local int			i, NumberNonBlank;
 	local string		TestString;
 
 	Super.OnInit();
+
+	class'UIPoseFix_SaveLayout'.default.lastAline = "";
+	class'UIPoseFix_SaveLayout'.default.lastBline = "";
+	class'UIPoseFix_SaveLayout'.default.lastOpline = "";
+	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
 
 	for(i=0; i<5; i++)
 	{
@@ -259,8 +266,8 @@ function PopulatePoseList(out int Index)
 
 	GetAnimationData(m_iLastTouchedSoldierIndex, AnimationNames, AnimationIndex);
 	
-	//`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
-	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
+	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	
 	// If we try to start at a number greater than the number of poses, go back to the first page:
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex > AnimationNames.Length)
@@ -289,8 +296,8 @@ function PopulatePoseList(out int Index)
 		{
 		endIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex;
 		}
-	//`log("Building List:",,'BDLOG');
-	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	`log("Building List:",,'BDLOG');
+	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
 	{
 		GetListItem(Index++).UpdateDataDescription(AnimationNames[i], OnConfirmPose); //bsg-jneal (5.16.17): now changing pose on selection change
@@ -682,6 +689,23 @@ simulated function bool OnUnrealCommand(int ucmd, int arg)
 	case class'UIUtilities_Input'.const.FXS_BUTTON_B:
 		onCancel();
 		return true;	
+	case class'UIUtilities_Input'.const.FXS_R_MOUSE_DOWN:
+				
+		if (IsMouseInPoster() && ((arg & class'UIUtilities_Input'.const.FXS_ACTION_PRESS) > 0 || (arg & class'UIUtilities_Input'.const.FXS_ACTION_HOLD) > 0))
+		{
+				m_bRightMouseIn = true;
+				Movie.Pres.m_kUIMouseCursor.UpdateMouseLocation();
+		}
+		else if ((arg & class'UIUtilities_Input'.const.FXS_ACTION_RELEASE) > 0)
+		{
+			if(!m_bRightMouseIn && `GETMCMVAR(RIGHT_CLICK_EXITS_SCREEN))
+			{
+				OnCancel();
+			}
+			m_bRightMouseIn = false;
+		}
+		return true;
+		break;
 	}
 	return super.OnUnrealCommand(ucmd, arg);
 }

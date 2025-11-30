@@ -1,0 +1,7 @@
+[BD_PoseListFixer_MCMScreen]
+ModName = "Photobooth UI Fixer"
+PageTitle = "Photobooth UI Fixer"
+GroupHeader = "General"
+
+RIGHT_CLICK_EXITS_SCREEN_Label = "Right-click closes the photobooth screen"
+RIGHT_CLICK_EXITS_SCREEN_Tip = "Disabling this checkbox means you have to click on the 'back/continue' buttons to exit the photobooth"

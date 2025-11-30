@@ -1,12 +1,19 @@
 class UITactical_Photobooth_PoseFix extends UITactical_Photobooth;
 
+`include(WOTC_BD_PoseListFixer\Src\ModConfigMenuAPI\MCM_API_CfgHelpers.uci)
+
 simulated function OnInit()
 {
 	local int			i, NumberNonBlank;
 	local string		TestString;
 	
 	super.OnInit();
-	
+
+	class'UIPoseFix_SaveLayout'.default.lastAline = "";
+	class'UIPoseFix_SaveLayout'.default.lastBline = "";
+	class'UIPoseFix_SaveLayout'.default.lastOpline = "";
+	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
+
 	//`log("Ran PoseFix OnInit - NMDPhotoboothActive Status:" @ class'UIPoseFixHelpers'.default.NMDPhotoboothActive,,'BDLOG');
 	If(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
 	{
@@ -34,7 +41,7 @@ simulated function OnInit()
 		NumberNonBlank = 0;
 		foreach `PHOTOBOOTH.m_PosterStrings(TestString)
 		{
-			`log("PosterStrings:" @ TestString,,'BDLOG');
+			//`log("PosterStrings:" @ TestString,,'BDLOG');
 			if(TestString != "")
 			{
 				NumberNonBlank += 1;
@@ -59,7 +66,6 @@ function PopulateData()
 	local								UIButton nextItemsButton, previousItemsButton, soldierToggleButton, saveSettingsButton, loadSettingsButton;
 	local array<XComGameState_Unit>		arrSoldiers, arrValidSoldiers;
 	local string						TestString;
-	local bool							bSkipTextUpdate;
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
 	
@@ -123,7 +129,7 @@ function PopulateData()
 
 	foreach `PHOTOBOOTH.m_PosterStrings(TestString)
 	{
-		`log("PosterStrings:" @ TestString,,'BDLOG');			
+		//`log("PosterStrings:" @ TestString,,'BDLOG');			
 		if(TestString != "" )
 		{
 			NumberNonBlank += 1;
@@ -384,8 +390,7 @@ function GenerateDefaultSoldierSetup()
 	local array<XComGameState_Unit> arrSoldiers, arrValidSoldiers;
 	local int soldierIndex, i; 
 	local XComGameState_AdventChosen ChosenState;
-//	local bool capturedAnimFound;
-//	local AnimationPoses capturedAnim;
+	local AnimationPose CapturedPose;
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
 	
@@ -410,25 +415,21 @@ function GenerateDefaultSoldierSetup()
 		//If the soldier is dead, use the memorial layout instead of the normal one
 		If(arrValidSoldiers[soldierIndex].IsDead())
         {
-              // if(class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering == true)
-              // {
-                DefaultSetupSettings.TextLayoutState = ePBTLS_DeadSoldier;
-              // }
-        //`log("TextLayout before SetAutoStrings:" @ DefaultSetupSettings.TextLayoutState); 
-		`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO, ePBTLS_DeadSoldier, DefaultSetupSettings);
-		 //`log("TextLayout after SetAutoStrings:" @ DefaultSetupSettings.TextLayoutState); 
+	        DefaultSetupSettings.TextLayoutState = ePBTLS_DeadSoldier;
+       		//`log("TextLayout before SetAutoStrings:" @ DefaultSetupSettings.TextLayoutState); 
+			`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO, ePBTLS_DeadSoldier, DefaultSetupSettings);
+			 //`log("TextLayout after SetAutoStrings:" @ DefaultSetupSettings.TextLayoutState); 
 		}
 		If(arrValidSoldiers[soldierIndex].bCaptured)
 		{
-		// Find out which chosen got us
-		ChosenState = XComGameState_AdventChosen(`XCOMHISTORY.GetGameStateForObjectID(arrValidSoldiers[soldierIndex].ChosenCaptorRef.ObjectID));
-		DefaultSetupSettings.TextLayoutState = ePBTLS_CapturedSoldier;
-		DefaultSetupSettings.CameraPresetDisplayName = "Captured";
-		DefaultSetupSettings.BackgroundDisplayName = GetChosenBackgroundName(ChosenState);
-		//`log("Background name:" @ DefaultSetupSettings.BackgroundDisplayName);
-		`PHOTOBOOTH.SetBackgroundTexture(GetChosenBackgroundName(ChosenState));
-		`PHOTOBOOTH.SetTextLayoutByType(eTLT_Captured);
-		`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO, DefaultSetupSettings.TextLayoutState, DefaultSetupSettings);
+			// Find out which chosen got us
+			ChosenState = XComGameState_AdventChosen(`XCOMHISTORY.GetGameStateForObjectID(arrValidSoldiers[soldierIndex].ChosenCaptorRef.ObjectID));
+			DefaultSetupSettings.TextLayoutState = ePBTLS_CapturedSoldier;			
+			DefaultSetupSettings.BackgroundDisplayName = GetChosenBackgroundName(ChosenState);
+			//`log("Background name:" @ DefaultSetupSettings.BackgroundDisplayName);
+			`PHOTOBOOTH.SetBackgroundTexture(GetChosenBackgroundName(ChosenState));
+			`PHOTOBOOTH.SetTextLayoutByType(eTLT_Captured);
+			`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO, DefaultSetupSettings.TextLayoutState, DefaultSetupSettings);
 		}
 	//`log("TextLayout before SuperBase:" @ DefaultSetupSettings.TextLayoutState); 
 	super(UIPhotoboothBase).GenerateDefaultSoldierSetup();
@@ -611,7 +612,7 @@ function bool isBline(string CheckForBline)
 	SoloUnit = XComGameState_Unit(`XCOMHISTORY.GetGameStateForObjectID(`PHOTOBOOTH.GetCurrentSoldier(0).ObjectID));
 	SoloTemplate = SoloUnit.GetSoldierClassTemplate();
 
-	`log("Check:" @ CheckForBline,,'BDLOG');
+	//`log("Check:" @ CheckForBline,,'BDLOG');
 
 	//Shove all possible B-Lines into local struct
 	foreach `PHOTOBOOTH.m_arrSoloBlines(Bline)
@@ -894,6 +895,23 @@ simulated function bool OnUnrealCommand(int ucmd, int arg)
 		{
 			ZoomOut();
 		}
+		break;
+	case class'UIUtilities_Input'.const.FXS_R_MOUSE_DOWN:
+				
+		if (IsMouseInPoster() && ((arg & class'UIUtilities_Input'.const.FXS_ACTION_PRESS) > 0 || (arg & class'UIUtilities_Input'.const.FXS_ACTION_HOLD) > 0))
+		{
+				m_bRightMouseIn = true;
+				Movie.Pres.m_kUIMouseCursor.UpdateMouseLocation();
+		}
+		else if ((arg & class'UIUtilities_Input'.const.FXS_ACTION_RELEASE) > 0)
+		{
+			if(!m_bRightMouseIn && `GETMCMVAR(RIGHT_CLICK_EXITS_SCREEN))
+			{
+				OnCancel();
+			}
+			m_bRightMouseIn = false;
+		}
+		return true;
 		break;
 	}
 	return super.OnUnrealCommand(ucmd, arg);

@@ -11,7 +11,7 @@ event OnInit(UIScreen Screen)
 
 	if (Screen.IsA('NMD_UIDebriefPhotobooth'))
     {
-    //`log("Nice Mission Debriefing Photobooth found",,'BDLOG');
+    `log("Nice Mission Debriefing Photobooth found",,'BDLOG');
 	class'UIPoseFixHelpers'.default.NMDPhotoboothActive = true;
 	class'Engine'.static.GetEngine().GameViewport.bRenderEmptyScene = false;	
 	// Replace the modded photobooth with this one, containing pose next/prev
@@ -21,7 +21,7 @@ event OnInit(UIScreen Screen)
     }
 	if (Screen.IsA('NMD_UIMissionDebriefingScreen'))
 	{
-	//`log("We're in the NMD Mission debrief - congrats!",,'BDLOG');	
+	`log("We're in the NMD Mission debrief - congrats!",,'BDLOG');	
 	//reset the soldier index to 0 when we init the screen
 	Pres.ScreenStack.SubscribeToOnInputForScreen(Screen, OnSoldierSelectControllerCommand);
 	class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex = 0;
@@ -30,7 +30,7 @@ event OnInit(UIScreen Screen)
 
 		If(MyNextButton != none)
 		{
-		//`log("Replacing OnNext Delegate",,'BDLOG');	
+		`log("Replacing OnNext Delegate",,'BDLOG');	
 		NextWrapper = new class'UIPoseFix_NextClickWrapper';			
 		NextWrapper.OnNextClick = MyNextButton.OnClickedDelegate;
 		MyNextButton.OnClickedDelegate = NextWrapper.NextButtonPassIndex;
@@ -38,7 +38,7 @@ event OnInit(UIScreen Screen)
 
 		If(MyPreviousButton != none)
 		{
-		//`log("Replacing OnPrevious Delegate",,'BDLOG');
+		`log("Replacing OnPrevious Delegate",,'BDLOG');
 		PreviousWrapper = new class'UIPoseFix_PreviousClickWrapper';
 		PreviousWrapper.OnPreviousClick = MyPreviousButton.OnClickedDelegate;
 		MyPreviousButton.OnClickedDelegate = PreviousWrapper.PreviousButtonPassIndex;

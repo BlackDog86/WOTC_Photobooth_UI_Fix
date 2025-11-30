@@ -26,6 +26,6 @@ function NextButtonPassIndex(UIButton MyNextButton)
 		{		
 		class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex = 0;
 		}
-		//`log("Updating soldier index - new index:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
+		`log("Updating soldier index - new index:" @ class'UIPoseFixHelpers'.default.UIDebriefSoldierIndex,,'BDLOG');
 	}
 }

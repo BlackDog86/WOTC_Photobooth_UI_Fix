@@ -4,9 +4,9 @@ var config int UIPhotoboothNumberOfPosesToDisplay;
 var config int UIPhotoboothPoseStartIndex;
 var config int UIPhotoboothPoseEndIndex;
 var config int UIPhotoboothPoseOffset;
-var config bool NMDPhotoboothActive;
 var config int UIPhotoboothSoldierIndex;
 var config int UIDebriefSoldierIndex;
+var config bool NMDPhotoboothActive;
 var config bool EnableMemorialPoseFiltering;
 var config float TacZoomInOutAmount;
 var config float StratZoomInOutAmount;
@@ -88,7 +88,7 @@ static function bool IsValidNMDPhotoboothSoldier (XComGameState_Unit Unit)
 	{	
 		for(i = 0; i < class'UIPoseFix_SaveLayout'.default.PosterStrings.Length; i++)
 		{			
-			`log("ConfigPosterStringsOnLoad:" @ class'UIPoseFix_SaveLayout'.default.PosterStrings[i],,'BDLOG');
+		//	`log("ConfigPosterStringsOnLoad:" @ class'UIPoseFix_SaveLayout'.default.PosterStrings[i],,'BDLOG');
 			currentLineIsBline = false;
 			If(isBLine(class'UIPoseFix_SaveLayout'.default.PosterStrings[i]))
 			{
