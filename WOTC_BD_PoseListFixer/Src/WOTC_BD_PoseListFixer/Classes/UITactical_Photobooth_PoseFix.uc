@@ -390,7 +390,6 @@ function GenerateDefaultSoldierSetup()
 	local array<XComGameState_Unit> arrSoldiers, arrValidSoldiers;
 	local int soldierIndex, i; 
 	local XComGameState_AdventChosen ChosenState;
-	local AnimationPose CapturedPose;
 
 	BATTLE().GetHumanPlayer().GetOriginalUnits(arrSoldiers, true, true, true);
 	
