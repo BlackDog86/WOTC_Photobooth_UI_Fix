@@ -17,6 +17,20 @@ var config float StratMaxZoomDistance;
 var config float TacFOV;
 var config float StratFOV;
 var config int SavedLayoutTemplateIndex;
+var config float PhotoboothPresetLoadDelay;
+
+// Chance (percent, supports one decimal place e.g. 2.5) that "Randomize
+// Background" also applies a non-None first-pass filter / second-pass
+// filter ("effect"). Checked as SYNC_RAND(1000) < chance*10 for one decimal
+// place of precision. Default via XComGame.ini: 10.0 / 2.5.
+var config float RandomizeBackgroundFilterChancePercent;
+var config float RandomizeBackgroundEffectChancePercent;
+// Number of Layout / Pose-Camera save slots shown as spinners. Slot storage
+// only ever grows to match this on load (EnsureSlotsInitialized) - lowering
+// it hides the extra slots from the UI but never deletes their saved data,
+// so raising it again brings them back.
+var config int NumLayoutSlots;
+var config int NumSquadSlots;
 
 static function bool IsValidNMDPhotoboothSoldier (XComGameState_Unit Unit)
 {

@@ -92,6 +92,9 @@
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_SaveLayout.uc">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_SaveSquad.uc">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UISL_NMD_Photobooth.uc">
       <SubType>Content</SubType>
     </Content>

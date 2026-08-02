@@ -1,4 +1,4 @@
-class UIArmory_Photobooth_PoseFix extends UIArmory_Photobooth;
+class UIArmory_Photobooth_PoseFix extends UIArmory_Photobooth dependson(UIPoseFix_SaveSquad);
 
 `include(WOTC_BD_PoseListFixer\Src\ModConfigMenuAPI\MCM_API_CfgHelpers.uci)
 
@@ -9,10 +9,17 @@ simulated function OnInit()
 
 	Super.OnInit();
 
+	// Hide the poster overlay until our saved slots are actually applied,
+	// so the transient auto-generated layout never becomes visible - masks
+	// the delay below rather than needing it to be imperceptibly short.
+	HidePosterElements(true);
+
 	class'UIPoseFix_SaveLayout'.default.lastAline = "";
 	class'UIPoseFix_SaveLayout'.default.lastBline = "";
 	class'UIPoseFix_SaveLayout'.default.lastOpline = "";
 	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
+	class'UIPoseFix_SaveLayout'.static.EnsureSlotsInitialized();
+	class'UIPoseFix_SaveSquad'.static.EnsureSlotsInitialized();
 
 	for(i=0; i<5; i++)
 	{
@@ -47,6 +54,27 @@ simulated function OnInit()
 		break;
 		}
 	}
+
+	// The base game's own random setup (background/text/pose/camera) and
+	// formation/pawn creation both continue asynchronously after OnInit
+	// returns, so applying our saved slots immediately here gets overwritten
+	// once that finishes. A short fixed delay before applying is simpler
+	// than chasing every async completion signal. The poster is hidden above
+	// so this is no longer visible as a flash - the delay just needs to be
+	// long enough for that async work to actually finish; adjust if slots
+	// still aren't sticking (increase) or the poster reveals with a visible
+	// pause (decrease).
+	SetTimer(0.25f, false, nameof(ApplySavedPhotoboothSlots));
+}
+
+function ApplySavedPhotoboothSlots()
+{
+	`log("PoseFix: applying saved Pose/Camera and Layout slots after startup delay",,'BDLOG');
+	// Pose/Camera first, since it can change formation; Layout after, so
+	// nothing overwrites its styling.
+	ApplySquadSlot();
+	ApplyLayoutSlot();
+	HidePosterElements(false);
 }
 
 function OnSetPose(UIList ContainerList, int ItemIndex)
@@ -66,7 +94,7 @@ function PopulateData()
 {
 	//bsg-jneal (5.16.17): now returning to original menu index when leaving soldier or pose selection
 	local int		i, previousListIndex, NumberNonBlank;
-	local			UIButton nextItemsButton, previousItemsButton, saveSettingsButton, loadSettingsButton;
+	local			UIButton nextItemsButton, previousItemsButton;
 	local string	TestString;
 
 	previousListIndex = -1;	
@@ -89,12 +117,6 @@ function PopulateData()
 			{
 				previousListIndex = (m_iLastTouchedSoldierIndex * 4); //multiply index by number of list items per soldier (3 + 1 blank)
 			}
-		}
-		// If we're exiting the main screen, remove the save/load buttons
-		if(lastState == eUIPropagandaType_Base)
-		{
-			UIButton(self.GetChildByName('saveSettings',false)).Remove();
-			UIButton(self.GetChildByName('loadSettings',false)).Remove();
 		}
 		lastState = currentState;
 		List.ClearItems();
@@ -151,23 +173,6 @@ function PopulateData()
 			class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = 0;
 			class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
 			class'UIPoseFixHelpers'.default.UIPhotoboothPoseOffset = 0;
-			if(UIButton(self.GetChildByName('saveSettings',false)) == none)
-			{
-				saveSettingsButton = Spawn(class'UIButton',self);
-				saveSettingsButton.InitButton('saveSettings', class'UISaveLoadGameListItem'.default.m_sSaveLabel @ caps(class'UIPhotoboothBase'.default.m_CategoryLayout), OnClickedSaveSettings, eUIButtonStyle_HOTLINK_BUTTON);
-				saveSettingsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_LEFT);
-				saveSettingsButton.SetResizeToText(false);
-				saveSettingsButton.SetTextAlign("center");
-				saveSettingsButton.SetPosition(45,850);
-				saveSettingsButton.SetWidth(150);
-				loadSettingsButton = Spawn(class'UIButton',self);
-				loadSettingsButton.InitButton('loadSettings', class'UISaveLoadGameListItem'.default.m_sLoadLabel @ caps(class'UIPhotoboothBase'.default.m_CategoryLayout), OnClickedLoadSettings, eUIButtonStyle_HOTLINK_BUTTON);
-				loadSettingsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_RIGHT);
-				loadSettingsButton.SetResizeToText(false);
-				loadSettingsButton.SetTextAlign("center");
-				loadSettingsButton.SetPosition(375,850);
-				loadSettingsButton.SetWidth(150);				
-			}
 			PopulateDefaultList(i);
 			break;
 		case eUIPropagandaType_Formation:
@@ -492,61 +497,270 @@ function bool isBline(string CheckForBline)
 	return false;
 }
 
+// Adds the Save Layout/Squad rows and their slot-selector spinners. Moving a
+// spinner immediately loads that slot - there's no separate Load button.
+function PopulateDefaultList(out int Index)
+{
+	super.PopulateDefaultList(Index);
+
+	// "Reset" is the last row the base class adds (GetListItem(Index++).
+	// UpdateDataDescription(m_CategoryReset, OnReset) in UIPhotoboothBase).
+	// Reclaim that slot instead of appending after it, so our first row
+	// overwrites Reset rather than adding a new one below it.
+	Index--;
+
+	GetListItem(Index++).UpdateDataDescription("Randomize Background", OnClickedRandomizeBackground);
+	GetListItem(Index++).UpdateDataDescription("Randomize Text", OnClickedRandomizeText);
+	GetListItem(Index++).UpdateDataDescription("Randomize Layout", OnClickedRandomizeLayout);
+	GetListItem(Index++).UpdateDataDescription("Randomize Pose", OnClickedRandomizePose);
+	GetListItem(Index++).UpdateDataSpinner("Layout Preset", class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? "Random" : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
+	GetListItem(Index++).UpdateDataDescription("Save Layout", OnClickedSaveLayout);
+	GetListItem(Index++).UpdateDataSpinner("Pose Camera Preset", class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(true) == -1 ? "Random" : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(true) + 1), OnSquadSlotChanged);
+	GetListItem(Index++).UpdateDataDescription("Save Pose / Camera", OnClickedSaveSquad);
+}
+
+function OnLayoutSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
+{
+	local int NewSlot;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+	NewSlot = class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + Direction;
+	if (NewSlot < -1)
+		NewSlot = class'UIPoseFix_SaveLayout'.static.GetNumSlots() - 1;
+	else if (NewSlot >= class'UIPoseFix_SaveLayout'.static.GetNumSlots())
+		NewSlot = -1;
+
+	class'UIPoseFix_SaveLayout'.static.SetSelectedSlot(NewSlot);
+	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
+	ApplyLayoutSlot();
+}
+
+function OnSquadSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
+{
+	local int NewSlot;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+	NewSlot = class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(true) + Direction;
+	if (NewSlot < -1)
+		NewSlot = class'UIPoseFix_SaveSquad'.static.GetNumSlots() - 1;
+	else if (NewSlot >= class'UIPoseFix_SaveSquad'.static.GetNumSlots())
+		NewSlot = -1;
+
+	class'UIPoseFix_SaveSquad'.static.SetSelectedSlot(true, NewSlot);
+	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
+	ApplySquadSlot();
+}
+
 // DELEGATES
 
-function OnClickedSaveSettings(optional UIButton saveSettingsButton)
+function OnClickedSaveLayout()
 {	
-	local string PosterTextString;	
+	local array<FilterPosterOptions> arrFilters;
 
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
 	class'UIPoseFix_SaveLayout'.static.ClearArrays();
 	class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex = `PHOTOBOOTH.GetLayoutIndex();
 	class'UIPoseFix_SaveLayout'.default.PosterFonts = `PHOTOBOOTH.m_PosterFont;
-	class'UIPoseFix_SaveLayout'.default.PosterStringColors = `PHOTOBOOTH.m_PosterStringColors;	
-	class'UIPoseFix_SaveLayout'.default.bIsFirstLineBline = isBline(`PHOTOBOOTH.m_PosterStrings[0]);
-	class'UIPoseFix_SaveLayout'.default.NumberOfNonBlankLinesInSavedLayout = 0;
-	
-	foreach `PHOTOBOOTH.m_PosterStrings(PosterTextString)
-	{
-		if(PosterTextString != "")
-		{
-			class'UIPoseFix_SaveLayout'.default.NumberOfNonBlankLinesInSavedLayout += 1;
-		}
-	}
+	class'UIPoseFix_SaveLayout'.default.PosterStringColors = `PHOTOBOOTH.m_PosterStringColors;
+	class'UIPoseFix_SaveLayout'.default.FirstPassFilterIndex = `PHOTOBOOTH.GetFirstPassFilters(arrFilters);
+	class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex = `PHOTOBOOTH.GetSecondPassFilters(arrFilters);
+	class'UIPoseFix_SaveLayout'.default.GradientColor1Index = `PHOTOBOOTH.m_iGradientColor1Index;
+	class'UIPoseFix_SaveLayout'.default.GradientColor2Index = `PHOTOBOOTH.m_iGradientColor2Index;
+
 	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
+	class'UIPoseFix_SaveLayout'.static.SaveCurrentToSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot);
 }
 
-function OnClickedLoadSettings(optional UIButton loadSettingsButton)
+function OnClickedRandomizeBackground()
 {
+	local array<FilterPosterOptions> arrFilters;
 
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+	RandomSetBackground();
+	// RandomSetBackground() only re-rolls the texture; the tint color indices
+	// are separate state that otherwise carries over unchanged, so with the
+	// tint checkbox on the background looks the same every time. Re-roll both,
+	// matching the same SYNC_RAND(m_FontColors.length) pattern the base game's
+	// own initial random setup uses.
+	`PHOTOBOOTH.SetGradientColorIndex1(`SYNC_RAND(`PHOTOBOOTH.m_FontColors.length));
+	`PHOTOBOOTH.SetGradientColorIndex2(`SYNC_RAND(`PHOTOBOOTH.m_FontColors.length));
+
+	// Weighted chance of a non-None filter/effect, same
+	// SYNC_RAND(100) < FilterChance pattern the base game's own initial
+	// random setup uses for first-pass filter, extended to one decimal place
+	// of precision (SYNC_RAND(1000) against chance*10) so a value like 2.5
+	// works. Each click is an independent roll - reset to None on failure
+	// rather than leaving whatever filter/effect was already applied.
+	if (`SYNC_RAND(1000) < int(class'UIPoseFixHelpers'.default.RandomizeBackgroundFilterChancePercent * 10))
+	{
+		`PHOTOBOOTH.GetFirstPassFilters(arrFilters);
+		`PHOTOBOOTH.SetFirstPassFilter(`SYNC_RAND(arrFilters.Length - 1) + 1);
+	}
+	else
+	{
+		`PHOTOBOOTH.SetFirstPassFilter(0);
+	}
+
+	if (`SYNC_RAND(1000) < int(class'UIPoseFixHelpers'.default.RandomizeBackgroundEffectChancePercent * 10))
+	{
+		`PHOTOBOOTH.GetSecondPassFilters(arrFilters);
+		`PHOTOBOOTH.SetSecondPassFilter(`SYNC_RAND(arrFilters.Length - 1) + 1);
+	}
+	else
+	{
+		`PHOTOBOOTH.SetSecondPassFilter(0);
+	}
+
+	NeedsPopulateData();
+}
+
+function OnClickedRandomizeText()
+{
+	local array<string> SavedFonts;
+	local array<int> SavedColors;
+	local int SavedLayoutIndex;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+
+	// SetAutoTextStrings() regenerates font/color/layout as a side effect of
+	// generating new text (it calls SetLayoutIndex() internally and rolls new
+	// fonts/colors). Snapshot those and restore them afterward so this button
+	// only changes the literal text content.
+	SavedFonts = `PHOTOBOOTH.m_PosterFont;
+	SavedColors = `PHOTOBOOTH.m_PosterStringColors;
+	SavedLayoutIndex = `PHOTOBOOTH.GetLayoutIndex();
+
+	// Same formation-size -> auto-text-usage mapping OnInit already uses when
+	// first generating text for the current formation.
+	if (`PHOTOBOOTH.m_kFormationTemplate.NumSoldiers == 1)
+	{
+		`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO);
+	}
+	else if (`PHOTOBOOTH.m_kFormationTemplate.NumSoldiers == 2)
+	{
+		`PHOTOBOOTH.SetAutoTextStrings(ePBAT_DUO);
+	}
+	else
+	{
+		`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SQUAD);
+	}
+
+	`PHOTOBOOTH.m_PosterFont = SavedFonts;
+	`PHOTOBOOTH.m_PosterStringColors = SavedColors;
+	`PHOTOBOOTH.SetLayoutIndex(SavedLayoutIndex);
+	NeedsPopulateData();
+}
+
+function OnClickedRandomizeLayout()
+{
+	local array<string> LayoutNames;
+	local array<FontOptions> arrFontOptions;
+	local int i;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+
+	GetLayoutNames(LayoutNames);
+	`PHOTOBOOTH.SetLayoutIndex(`SYNC_RAND(LayoutNames.Length));
+
+	// Re-fetch NumTextBoxes after SetLayoutIndex(), since a different layout
+	// can have a different box count. Filter/effect are handled by Randomize
+	// Background instead, not here.
+	`PHOTOBOOTH.GetFonts(arrFontOptions);
+	for (i = 0; i < `PHOTOBOOTH.m_currentTextLayoutTemplate.NumTextBoxes; i++)
+	{
+		`PHOTOBOOTH.SetTextBoxFont(i, arrFontOptions[`SYNC_RAND(arrFontOptions.Length)].FontName);
+		`PHOTOBOOTH.SetTextBoxColor(i, `SYNC_RAND(`PHOTOBOOTH.m_FontColors.Length));
+	}
+
+	NeedsPopulateData();
+}
+
+function OnClickedRandomizePose()
+{
+	local int i;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+	for (i = 0; i < `PHOTOBOOTH.m_kFormationTemplate.NumSoldiers; i++)
+	{
+		SetRandomAnimationPoseForSoldier(i);
+	}
+	NeedsPopulateData();
+}
+
+function OnClickedSaveSquad()
+{
+	local array<UIPoseFix_SaveSquad.SavedSquadSoldierData> Soldiers;
+	local UIPoseFix_SaveSquad.SavedSquadSoldierData SoldierData;
+	local PhotoboothCameraSettings CameraSettings;
+	local int i;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+
+	Soldiers.Length = 0;
+	for (i = 0; i < `PHOTOBOOTH.m_kFormationTemplate.NumSoldiers; i++)
+	{
+		SoldierData.AnimationName = `PHOTOBOOTH.m_arrUnits[i].AnimationName;
+		SoldierData.AnimationOffset = `PHOTOBOOTH.m_arrUnits[i].AnimationOffset;
+		Soldiers.AddItem(SoldierData);
+	}
+
+	// Requires the XComCamState_HQ_Photobooth Highlander deprivatization PR
+	// (removes `private` from m_vTargetRotationPoint/m_rTargetCameraRotation/
+	// m_fTargetCameraDistance - already merged, shipping in the next beta).
+	// No getter functions needed; the fields are just public now.
+	CameraSettings.RotationPoint = m_kCamState.m_vTargetRotationPoint;
+	CameraSettings.Rotation = m_kCamState.m_rTargetCameraRotation;
+	CameraSettings.ViewDistance = m_kCamState.m_fTargetCameraDistance;
+
+	class'UIPoseFix_SaveSquad'.static.SaveSquadToSlot(true, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(true), string(`PHOTOBOOTH.m_kFormationTemplate.DataName), Soldiers, CameraSettings);
+}
+
+function ApplySquadSlot()
+{
+	local array<UIPoseFix_SaveSquad.SavedSquadSoldierData> Soldiers;
+	local PhotoboothCameraSettings CameraSettings;
+	local array<X2PropagandaPhotoTemplate> arrFormations;
+	local string FormationDataName;
+	local int i;
+
+	if (!class'UIPoseFix_SaveSquad'.static.LoadSquadFromSlot(true, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(true), FormationDataName, Soldiers, CameraSettings))
+	{
+		`log("PoseFix ApplySquadSlot: slot" @ class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(true) @ "is empty, nothing to apply",,'BDLOG');
+		return;
+	}
+
+	`PHOTOBOOTH.GetFormations(arrFormations);
+	for (i = 0; i < arrFormations.Length; i++)
+	{
+		if (string(arrFormations[i].DataName) == FormationDataName)
+		{
+			`PHOTOBOOTH.ChangeFormation(arrFormations[i]);
+			break;
+		}
+	}
+
+	for (i = 0; i < Soldiers.Length; i++)
+	{
+		`PHOTOBOOTH.SetSoldierAnim(i, Soldiers[i].AnimationName, Soldiers[i].AnimationOffset);
+	}
+
+	UpdateCameraToPOV(CameraSettings, true);
+	NeedsPopulateData();
+}
+
+function ApplyLayoutSlot()
+{
+	if (!class'UIPoseFix_SaveLayout'.static.LoadFromSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot))
+		return;
+
+	// Deliberately does not touch `PHOTOBOOTH.m_PosterStrings - the randomized
+	// poster text stays as-is. Only styling is restored.
 	`PHOTOBOOTH.m_PosterFont = class'UIPoseFix_SaveLayout'.default.PosterFonts;
 	`PHOTOBOOTH.m_PosterStringColors = class'UIPoseFix_SaveLayout'.default.PosterStringColors;
-	`PHOTOBOOTH.m_PosterStrings.Length = 0;
-
-	if(class'UIPoseFix_SaveLayout'.default.NumberOfNonBlankLinesInSavedLayout == 1)
-	{
-		if(class'UIPoseFix_SaveLayout'.default.bIsFirstLineBline)
-		{
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastBline);
-		}
-		else
-		{
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastAline);
-		}
-	}
-	if(class'UIPoseFix_SaveLayout'.default.NumberOfNonBlankLinesInSavedLayout == 2)
-	{
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastAline);
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastBline);	
-	}
-	if(class'UIPoseFix_SaveLayout'.default.NumberOfNonBlankLinesInSavedLayout == 3)
-	{
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastAline);
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastBline);	
-		`PHOTOBOOTH.m_PosterStrings.AddItem(class'UIPoseFix_SaveLayout'.default.lastOpline);	
-	}
-	
+	`PHOTOBOOTH.SetFirstPassFilter(class'UIPoseFix_SaveLayout'.default.FirstPassFilterIndex);
+	`PHOTOBOOTH.SetSecondPassFilter(class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex);
+	`PHOTOBOOTH.SetGradientColorIndex1(class'UIPoseFix_SaveLayout'.default.GradientColor1Index);
+	`PHOTOBOOTH.SetGradientColorIndex2(class'UIPoseFix_SaveLayout'.default.GradientColor2Index);
 	`PHOTOBOOTH.SetLayoutIndex(class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex);
 	NeedsPopulateData();
 }
