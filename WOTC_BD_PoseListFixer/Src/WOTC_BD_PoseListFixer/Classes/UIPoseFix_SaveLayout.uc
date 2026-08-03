@@ -24,6 +24,7 @@ var config int				FirstPassFilterIndex;
 var config int				SecondPassFilterIndex;
 var config int				GradientColor1Index;
 var config int				GradientColor2Index;
+var config bool				HidePoster;
 
 // Named layout slots. A slot snapshots everything above (except the live
 // text-tracking scalars, which aren't part of a slot) at the moment of Save.
@@ -37,6 +38,7 @@ struct native SavedLayoutSlot
 	var int				SecondPassFilterIndex;
 	var int				GradientColor1Index;
 	var int				GradientColor2Index;
+	var bool			HidePoster;
 };
 
 var config array<SavedLayoutSlot>	SavedLayouts;
@@ -116,6 +118,7 @@ static function SaveCurrentToSlot(int SlotIndex)
 	NewSlot.SecondPassFilterIndex = default.SecondPassFilterIndex;
 	NewSlot.GradientColor1Index = default.GradientColor1Index;
 	NewSlot.GradientColor2Index = default.GradientColor2Index;
+	NewSlot.HidePoster = default.HidePoster;
 
 	default.SavedLayouts[SlotIndex] = NewSlot;
 	SaveLayoutConfigs();
@@ -137,6 +140,7 @@ static function bool LoadFromSlot(int SlotIndex)
 	default.SecondPassFilterIndex = default.SavedLayouts[SlotIndex].SecondPassFilterIndex;
 	default.GradientColor1Index = default.SavedLayouts[SlotIndex].GradientColor1Index;
 	default.GradientColor2Index = default.SavedLayouts[SlotIndex].GradientColor2Index;
+	default.HidePoster = default.SavedLayouts[SlotIndex].HidePoster;
 
 	SaveLayoutConfigs();
 	return true;

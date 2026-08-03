@@ -1,8 +1,45 @@
 class UITactical_Photobooth_PoseFix extends UITactical_Photobooth dependson(UIPoseFix_SaveSquad);
 
-var bool bSkipSquadSlotRestore;
-
 `include(WOTC_BD_PoseListFixer\Src\ModConfigMenuAPI\MCM_API_CfgHelpers.uci)
+
+// NMD (Nice Mission Briefings) is always "Solo" formation - a single-soldier
+// preset saved there is a fundamentally different shape than a full squad
+// preset, so it gets its own slot set rather than sharing Tactical's.
+function int GetSquadContext()
+{
+	if (class'UIPoseFixHelpers'.default.NMDPhotoboothActive)
+		return class'UIPoseFix_SaveSquad'.const.CONTEXT_NMD;
+	return class'UIPoseFix_SaveSquad'.const.CONTEXT_TACTICAL;
+}
+
+// Overridden so "Hide Poster" only hides the text/layout overlay, not the
+// background. The base implementation toggles `PHOTOBOOTH.bShowInGame,
+// which (via SetCaptureRenderChannels()) also switches which render
+// channel is active: with the poster effect off, the real 3D scene renders
+// instead of whatever background texture was set, discarding a custom
+// background entirely rather than just hiding text on top of it. Using
+// `PHOTOBOOTH.HidePosterTexture()/UpdatePosterTexture() instead (already
+// used internally for a related purpose - toggling just the UIRenderTarget)
+// removes only the text overlay, leaving bShowInGame/BackgroundTexture (and
+// therefore the render channel choice) untouched.
+// NOTE: `PHOTOBOOTH.PosterElementsHidden() - which the base game's own
+// "Hide Poster" checkbox construction reads directly, bypassing this
+// function - still reflects bShowInGame, which this no longer changes, so
+// the checkbox's own drawn checked-state may not visually track this
+// correctly. Text hiding itself is functionally correct either way. This
+// affects every caller of HidePosterElements() uniformly (the checkbox's
+// own click handler, and this mod's Layout preset restore).
+function HidePosterElements(bool bHide)
+{
+	if (bHide)
+	{
+		`PHOTOBOOTH.HidePosterTexture();
+	}
+	else
+	{
+		`PHOTOBOOTH.UpdatePosterTexture();
+	}
+}
 
 simulated function OnInit()
 {
@@ -30,10 +67,6 @@ simulated function OnInit()
 		NMD_InitializeFormation();
 		GenerateDefaultSoldierSetup();	
 		class'UIPoseFixHelpers'.default.UIPhotoboothSoldierIndex = 0;
-		// Skip auto-loading the saved Pose/Camera slot in Tick() below - NMD
-		// briefings set up a specific formation/soldiers for a narrative
-		// purpose that a generic saved preset shouldn't override.
-		bSkipSquadSlotRestore = true;
 	}
 
 	// Initialise layout settings (give up after 10 attempts of trying getting an equal number of elements to what we saved)
@@ -86,16 +119,32 @@ simulated function OnInit()
 
 function ApplySavedPhotoboothSlots()
 {
-	`log("PoseFix: applying saved Pose/Camera and Layout slots after startup delay (bSkipSquadSlotRestore =" @ bSkipSquadSlotRestore $ ")",,'BDLOG');
-	// Pose/Camera first, since it can change formation; Layout after, so
-	// nothing overwrites its styling. Pose/Camera restore is skipped for
-	// NMD briefings - see OnInit.
-	if (!bSkipSquadSlotRestore)
+	// The fixed startup delay alone isn't reliable - the base game's own
+	// random setup (background/text/pose/camera, driven by m_kGenRandomState
+	// via UpdateRandom()/Tick()) can still be mid-flight after the delay
+	// fires, and overwrite an already-correct restore on a later frame.
+	// Retry until it's actually done instead of assuming the delay was
+	// long enough.
+	if (m_kGenRandomState != eAGCS_Idle)
 	{
-		ApplySquadSlot();
+		`log("PoseFix ApplySavedPhotoboothSlots: base game random setup still in progress (m_kGenRandomState =" @ m_kGenRandomState $ "), retrying shortly",,'BDLOG');
+		SetTimer(0.05f, false, nameof(ApplySavedPhotoboothSlots));
+		return;
 	}
-	ApplyLayoutSlot();
-	HidePosterElements(false);
+
+	`log("PoseFix: applying saved Pose/Camera and Layout slots after startup delay",,'BDLOG');
+	// Pose/Camera first, since it can change formation; Layout after, so
+	// nothing overwrites its styling. ApplySquadSlot() targets NMD's own
+	// slot set via GetSquadContext() when NMD is active, so this is safe to
+	// always call - it can't collide with a squad-photo preset anymore.
+	ApplySquadSlot();
+	if (!ApplyLayoutSlot())
+	{
+		// No Layout slot was applied (empty/Random) - nothing set the poster's
+		// visibility, so explicitly reveal it (it was hidden at OnInit purely
+		// to mask this delay).
+		HidePosterElements(false);
+	}
 }
 
 function PopulateData()
@@ -210,7 +259,7 @@ function PopulateData()
 				soldierToggleButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_Y_TRIANGLE);
 				soldierToggleButton.SetResizeToText(false);
 				soldierToggleButton.SetTextAlign("center");
-				soldierToggleButton.SetPosition(75,700);
+				soldierToggleButton.SetPosition(75,925);
 				soldierToggleButton.SetWidth(410);			
 			}						
 			PopulateDefaultList(i);
@@ -824,8 +873,8 @@ function PopulateDefaultList(out int Index)
 	GetListItem(Index++).UpdateDataDescription("Randomize Pose", OnClickedRandomizePose);
 	GetListItem(Index++).UpdateDataSpinner("Layout Preset", class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? "Random" : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
 	GetListItem(Index++).UpdateDataDescription("Save Layout", OnClickedSaveLayout);
-	GetListItem(Index++).UpdateDataSpinner("Pose Camera Preset", class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(false) == -1 ? "Random" : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(false) + 1), OnSquadSlotChanged);
-	GetListItem(Index++).UpdateDataDescription("Save Pose / Camera", OnClickedSaveSquad);
+	GetListItem(Index++).UpdateDataSpinner(class'UIPoseFixHelpers'.default.NMDPhotoboothActive ? "NMD Pose Preset" : "Pose Camera Preset", class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) == -1 ? "Random" : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) + 1), OnSquadSlotChanged);
+	GetListItem(Index++).UpdateDataDescription(class'UIPoseFixHelpers'.default.NMDPhotoboothActive ? "Save NMD Pose" : "Save Pose / Camera", OnClickedSaveSquad);
 }
 
 function OnLayoutSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
@@ -849,13 +898,13 @@ function OnSquadSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
 	local int NewSlot;
 
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
-	NewSlot = class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(false) + Direction;
+	NewSlot = class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) + Direction;
 	if (NewSlot < -1)
 		NewSlot = class'UIPoseFix_SaveSquad'.static.GetNumSlots() - 1;
 	else if (NewSlot >= class'UIPoseFix_SaveSquad'.static.GetNumSlots())
 		NewSlot = -1;
 
-	class'UIPoseFix_SaveSquad'.static.SetSelectedSlot(false, NewSlot);
+	class'UIPoseFix_SaveSquad'.static.SetSelectedSlot(GetSquadContext(), NewSlot);
 	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
 	ApplySquadSlot();
 }
@@ -873,6 +922,7 @@ function OnClickedSaveLayout()
 	class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex = `PHOTOBOOTH.GetSecondPassFilters(arrFilters);
 	class'UIPoseFix_SaveLayout'.default.GradientColor1Index = `PHOTOBOOTH.m_iGradientColor1Index;
 	class'UIPoseFix_SaveLayout'.default.GradientColor2Index = `PHOTOBOOTH.m_iGradientColor2Index;
+	class'UIPoseFix_SaveLayout'.default.HidePoster = `PHOTOBOOTH.PosterElementsHidden();
 
 	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
 	class'UIPoseFix_SaveLayout'.static.SaveCurrentToSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot);
@@ -881,9 +931,66 @@ function OnClickedSaveLayout()
 function OnClickedRandomizeBackground()
 {
 	local array<FilterPosterOptions> arrFilters;
+	local array<string> BackgroundNames;
+	local int BackgroundIndex, i;
 
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
-	RandomSetBackground();
+
+	// This screen's real "background" is the mission map itself
+	// (m_kTacticalLocation, the separate "Map Location" spinner) - changing
+	// that is usually more interesting than picking a flat background
+	// texture, so weight toward it. NextStudio()/PreviousStudio() are just
+	// thin wrappers (set m_iCurrentStudioIndex, set m_OnStudioLoaded, call
+	// SpawnStudio()) - do the same directly with a genuinely random index
+	// instead of +-1, for a true uniform pick across all locations on this
+	// map rather than a single step from wherever we currently are.
+	// Deliberately skips the spinner's bChangingLocation continuity-
+	// preserving camera math - for a randomize action, landing on the new
+	// location's own default framing is the desired outcome, not preserving
+	// the old one.
+	if (`SYNC_RAND(1000) < int(class'UIPoseFixHelpers'.default.RandomizeBackgroundMapLocationChancePercent * 10))
+	{
+		`log("PoseFix RandomizeBackground: location branch taken",,'BDLOG');
+		m_kTacticalLocation.m_iCurrentStudioIndex = `SYNC_RAND(m_kTacticalLocation.m_arrAllExits.Length);
+		m_kTacticalLocation.m_OnStudioLoaded = OnRandomizedLocationLoaded;
+		m_kTacticalLocation.SpawnStudio();
+
+		// Changing location means the real mission map is now what should
+		// show through - reset the background texture to "None" in case a
+		// standard background texture is currently set (from an earlier
+		// randomize roll, or set by hand), otherwise it stays plastered over
+		// the new location instead of letting the map show. Same "find
+		// None" lookup RandomSetBackground() uses.
+		GetBackgroundData(BackgroundNames, BackgroundIndex, ePBT_XCOM);
+		BackgroundIndex = INDEX_NONE;
+		for (i = 0; i < BackgroundNames.Length; ++i)
+		{
+			if (BackgroundNames[i] == "None")
+			{
+				BackgroundIndex = i;
+				break;
+			}
+		}
+		if (BackgroundIndex != INDEX_NONE)
+		{
+			SetBackground(BackgroundIndex, ePBT_XCOM, false);
+		}
+	}
+	else
+	{
+		// RandomSetBackground() on this screen isn't a true randomizer - it
+		// deliberately snaps to "None" whenever that's an available option (so
+		// the real mission map shows through by default, rather than a fake
+		// backdrop), only falling back to a random pick if "None" isn't in the
+		// list at all. Do a real random pick instead (same
+		// GetBackgroundData/SetBackground calls, just without the "prefer
+		// None" bias), matching how the Armory version already behaves.
+		GetBackgroundData(BackgroundNames, BackgroundIndex, ePBT_XCOM);
+		BackgroundIndex = `SYNC_RAND(BackgroundNames.Length);
+		`log("PoseFix RandomizeBackground: texture branch taken, picked index" @ BackgroundIndex @ "of" @ BackgroundNames.Length @ "(" $ BackgroundNames[BackgroundIndex] $ ")",,'BDLOG');
+		SetBackground(BackgroundIndex, ePBT_XCOM, false);
+	}
+
 	// RandomSetBackground() only re-rolls the texture; the tint color indices
 	// are separate state that otherwise carries over unchanged, so with the
 	// tint checkbox on the background looks the same every time. Re-roll both,
@@ -919,6 +1026,29 @@ function OnClickedRandomizeBackground()
 	}
 
 	NeedsPopulateData();
+}
+
+function OnRandomizedLocationLoaded()
+{
+	StudioLoadedUpdateCamera();
+	`log("PoseFix OnRandomizedLocationLoaded: StudioLoadedUpdateCamera done, scheduling ApplySquadSlotPoseCameraOnly in" @ class'UIPoseFixHelpers'.default.PhotoboothPresetLoadDelay @ "seconds",,'BDLOG');
+
+	// Reapply the saved Pose/Camera preset's POSE and CAMERA after a
+	// location change, but NOT its formation - a manually-changed formation
+	// shouldn't get silently overwritten by whatever preset happens to
+	// still be selected in the spinner (see ApplySquadSlotPoseCameraOnly).
+	// ApplySquadSlot() already no-ops harmlessly if "Random" is selected or
+	// the slot is empty. Deferred via the same configurable delay used
+	// elsewhere for "wait for async engine setup to settle".
+	SetTimer(class'UIPoseFixHelpers'.default.PhotoboothPresetLoadDelay, false, nameof(ApplySquadSlotPoseCameraOnly));
+}
+
+// SetTimer can't pass arguments through, so this just fixes bApplyFormation
+// to false for the deferred call above.
+function ApplySquadSlotPoseCameraOnly()
+{
+	`log("PoseFix ApplySquadSlotPoseCameraOnly: timer fired, calling ApplySquadSlot(false)",,'BDLOG');
+	ApplySquadSlot(false);
 }
 
 function OnClickedRandomizeText()
@@ -999,6 +1129,7 @@ function OnClickedSaveSquad()
 	local array<UIPoseFix_SaveSquad.SavedSquadSoldierData> Soldiers;
 	local UIPoseFix_SaveSquad.SavedSquadSoldierData SoldierData;
 	local PhotoboothCameraSettings CameraSettings;
+	local Actor FormationActor;
 	local Vector VecX, VecY, VecZ, WorldOffset;
 	local int i;
 
@@ -1012,72 +1143,143 @@ function OnClickedSaveSquad()
 		Soldiers.AddItem(SoldierData);
 	}
 
-	CameraSettings.Rotation = m_kStudioCamera.GetCameraTargetRotation();
 	CameraSettings.ViewDistance = m_kStudioCamera.GetCameraDistance();
 
-	// The camera's RotationPoint is an absolute world-space point tied to
-	// whichever map "location" (m_kTacticalLocation) is currently active -
-	// meaningless once the location changes, since it then points at empty
-	// space where the squad used to stand. Store it as an offset relative to
-	// the current formation placement point instead, decomposed along the
-	// saved rotation's own axes - the same technique OnChangeStudioLocation()
-	// already uses to preserve camera framing across a location change.
-	WorldOffset = m_kStudioCamera.GetCameraOffset() - m_kTacticalLocation.GetFormationPlacementActor().Location;
-	GetAxes(CameraSettings.Rotation, VecX, VecY, VecZ);
+	// Both the camera's RotationPoint AND Rotation are absolute world-space
+	// values tied to whichever map "location" (m_kTacticalLocation) is
+	// currently active - meaningless once the location changes: position
+	// alone pointed the camera at empty space where the squad used to stand,
+	// and even with position fixed, rotation alone meant "face-on" wouldn't
+	// stay face-on if a different location's formation faces a different
+	// way. Store both relative to the formation placement actor's own
+	// location AND rotation instead - the same technique
+	// OnChangeStudioLocation() uses (just anchored to the formation's frame
+	// rather than the previous camera rotation, since we're reconstructing a
+	// saved preset rather than preserving in-progress framing).
+	FormationActor = m_kTacticalLocation.GetFormationPlacementActor();
+	WorldOffset = m_kStudioCamera.GetCameraOffset() - FormationActor.Location;
+	GetAxes(FormationActor.Rotation, VecX, VecY, VecZ);
 	CameraSettings.RotationPoint.X = WorldOffset Dot VecX;
 	CameraSettings.RotationPoint.Y = WorldOffset Dot VecY;
 	CameraSettings.RotationPoint.Z = WorldOffset Dot VecZ;
+	CameraSettings.Rotation = m_kStudioCamera.GetCameraTargetRotation() - FormationActor.Rotation;
 
-	class'UIPoseFix_SaveSquad'.static.SaveSquadToSlot(false, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(false), string(`PHOTOBOOTH.m_kFormationTemplate.DataName), Soldiers, CameraSettings);
+	class'UIPoseFix_SaveSquad'.static.SaveSquadToSlot(GetSquadContext(), class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()), string(`PHOTOBOOTH.m_kFormationTemplate.DataName), Soldiers, CameraSettings);
 }
 
-function ApplySquadSlot()
+function ApplySquadSlot(optional bool bApplyFormation = true)
 {
 	local array<UIPoseFix_SaveSquad.SavedSquadSoldierData> Soldiers;
 	local PhotoboothCameraSettings CameraSettings;
 	local array<X2PropagandaPhotoTemplate> arrFormations;
 	local string FormationDataName;
+	local Actor FormationActor;
 	local Vector VecX, VecY, VecZ, RelativeOffset;
-	local int i;
+	local array<AnimationPoses> arrValidPoses;
+	local bool bPoseValid;
+	local int i, j, NumSlotsToApply;
 
-	if (!class'UIPoseFix_SaveSquad'.static.LoadSquadFromSlot(false, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(false), FormationDataName, Soldiers, CameraSettings))
+	if (!class'UIPoseFix_SaveSquad'.static.LoadSquadFromSlot(GetSquadContext(), class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()), FormationDataName, Soldiers, CameraSettings))
 	{
-		`log("PoseFix ApplySquadSlot: slot" @ class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(false) @ "is empty, nothing to apply",,'BDLOG');
+		`log("PoseFix ApplySquadSlot: slot" @ class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) @ "is empty, nothing to apply",,'BDLOG');
 		return;
 	}
 
-	`PHOTOBOOTH.GetFormations(arrFormations);
-	for (i = 0; i < arrFormations.Length; i++)
+	if (bApplyFormation)
 	{
-		if (string(arrFormations[i].DataName) == FormationDataName)
+		`PHOTOBOOTH.GetFormations(arrFormations);
+		// ChangeFormation() sets m_bFormationNeedsUpdate = true unconditionally,
+		// triggering a full pawn respawn regardless of whether the formation
+		// TYPE actually differs. Skip it entirely when the current formation
+		// already matches the saved one, to avoid an unnecessary respawn/flicker
+		// that visually looks like "the formation reset" even though it didn't.
+		if (string(`PHOTOBOOTH.m_kFormationTemplate.DataName) != FormationDataName)
 		{
-			`PHOTOBOOTH.ChangeFormation(arrFormations[i]);
-			break;
+			for (i = 0; i < arrFormations.Length; i++)
+			{
+				if (string(arrFormations[i].DataName) == FormationDataName)
+				{
+					`PHOTOBOOTH.ChangeFormation(arrFormations[i]);
+					break;
+				}
+			}
 		}
 	}
 
-	for (i = 0; i < Soldiers.Length; i++)
+	// When bApplyFormation is false, the current formation may not match
+	// the one the saved pose data was captured against (different slot
+	// count) - only apply pose to slots that actually exist in whatever
+	// formation is currently active.
+	NumSlotsToApply = Min(Soldiers.Length, `PHOTOBOOTH.m_kFormationTemplate.NumSoldiers);
+	`log("PoseFix ApplySquadSlot: applying pose to" @ NumSlotsToApply @ "of" @ Soldiers.Length @ "saved soldier slots (current formation NumSoldiers =" @ `PHOTOBOOTH.m_kFormationTemplate.NumSoldiers $ ")",,'BDLOG');
+	for (i = 0; i < NumSlotsToApply; i++)
 	{
-		`PHOTOBOOTH.SetSoldierAnim(i, Soldiers[i].AnimationName, Soldiers[i].AnimationOffset);
+		// Poses are class/gender restricted (e.g. many are excluded for
+		// Templar, and some mods only add poses to specific animsets), so a
+		// pose saved against one soldier may not be a valid choice for
+		// whoever currently occupies this slot. GetAnimations() already
+		// returns exactly the poses valid for the CURRENT occupant of this
+		// slot, so check the saved pose against that list rather than
+		// assuming it still applies. If it's not valid, leave that one
+		// soldier's current pose untouched instead of forcing an invalid
+		// pose or substituting a random one.
+		arrValidPoses.Length = 0;
+		`PHOTOBOOTH.GetAnimations(i, arrValidPoses);
+		bPoseValid = false;
+		for (j = 0; j < arrValidPoses.Length; j++)
+		{
+			if (arrValidPoses[j].AnimationName == Soldiers[i].AnimationName)
+			{
+				bPoseValid = true;
+				break;
+			}
+		}
+
+		if (bPoseValid)
+		{
+			`PHOTOBOOTH.SetSoldierAnim(i, Soldiers[i].AnimationName, Soldiers[i].AnimationOffset);
+		}
+		else
+		{
+			`log("PoseFix ApplySquadSlot: saved pose" @ Soldiers[i].AnimationName @ "not valid for slot" @ i @ "'s current occupant (different class/gender?) - leaving current pose unchanged",,'BDLOG');
+		}
 	}
 
-	// CameraSettings.RotationPoint was saved as an offset relative to the
-	// formation placement point (see OnClickedSaveSquad), not an absolute
-	// world position - reconstruct the absolute point using wherever the
-	// formation is currently placed, so this is correct regardless of which
-	// map location is active.
-	GetAxes(CameraSettings.Rotation, VecX, VecY, VecZ);
+	// CameraSettings.RotationPoint/Rotation were saved relative to the
+	// formation placement actor's own location/rotation (see
+	// OnClickedSaveSquad), not as absolute world values - reconstruct both
+	// using wherever/however the formation is currently placed, so framing
+	// (including "face-on") is preserved regardless of which map location
+	// is active.
+	FormationActor = m_kTacticalLocation.GetFormationPlacementActor();
+	GetAxes(FormationActor.Rotation, VecX, VecY, VecZ);
 	RelativeOffset = CameraSettings.RotationPoint.X * VecX + CameraSettings.RotationPoint.Y * VecY + CameraSettings.RotationPoint.Z * VecZ;
-	CameraSettings.RotationPoint = m_kTacticalLocation.GetFormationPlacementActor().Location + RelativeOffset;
+	CameraSettings.RotationPoint = FormationActor.Location + RelativeOffset;
+	CameraSettings.Rotation = CameraSettings.Rotation + FormationActor.Rotation;
 
+	// UpdateCameraToPOV() has a bChangingLocation branch that applies an
+	// extra rotation/offset adjustment - that's the vanilla "Map Location"
+	// spinner's own mechanism for preserving camera continuity across a
+	// manual location change, using m_fLastCamRotation/m_vLastCamOffset. It
+	// only resets to false from inside that branch, so if it's left over
+	// true from an earlier spinner interaction, our restore below would get
+	// that unrelated adjustment piled on top of the already-correct
+	// position using stale values that have nothing to do with this preset.
+	// Force it false first so that branch never fires here.
+	bChangingLocation = false;
 	UpdateCameraToPOV(CameraSettings, true);
 	NeedsPopulateData();
 }
 
-function ApplyLayoutSlot()
+function bool ApplyLayoutSlot()
 {
 	if (!class'UIPoseFix_SaveLayout'.static.LoadFromSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot))
-		return;
+	{
+		`log("PoseFix ApplyLayoutSlot: slot" @ class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot @ "is empty, nothing to apply",,'BDLOG');
+		return false;
+	}
+
+	`log("PoseFix ApplyLayoutSlot: slot" @ class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot @ "loaded, applying styling",,'BDLOG');
 
 	// Deliberately does not touch `PHOTOBOOTH.m_PosterStrings - the randomized
 	// poster text stays as-is. Only styling is restored.
@@ -1088,6 +1290,23 @@ function ApplyLayoutSlot()
 	`PHOTOBOOTH.SetGradientColorIndex1(class'UIPoseFix_SaveLayout'.default.GradientColor1Index);
 	`PHOTOBOOTH.SetGradientColorIndex2(class'UIPoseFix_SaveLayout'.default.GradientColor2Index);
 	`PHOTOBOOTH.SetLayoutIndex(class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex);
+	NeedsPopulateData();
+	// The "Hide Poster" checkbox row gets reconstructed by the repopulate
+	// this NeedsPopulateData() triggers - if that construction fires
+	// OnHidePoster(false) on init (a common UI-framework pattern when a
+	// checkbox's bound value is first set), it would silently undo this
+	// right after. Defer it so it's guaranteed to run after that settles.
+	SetTimer(0.05f, false, nameof(ApplyHidePosterDelayed));
+	return true;
+}
+
+function ApplyHidePosterDelayed()
+{
+	HidePosterElements(class'UIPoseFix_SaveLayout'.default.HidePoster);
+	// The list already repopulated once (from ApplyLayoutSlot's own
+	// NeedsPopulateData()) before this delayed call ran, so the Hide Poster
+	// checkbox row was drawn reading the pre-delay state. Repopulate again
+	// now that the actual state is correct, so the checkbox catches up.
 	NeedsPopulateData();
 }
 

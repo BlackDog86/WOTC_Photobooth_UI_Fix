@@ -17,20 +17,30 @@ var config float StratMaxZoomDistance;
 var config float TacFOV;
 var config float StratFOV;
 var config int SavedLayoutTemplateIndex;
-var config float PhotoboothPresetLoadDelay;
-
 // Chance (percent, supports one decimal place e.g. 2.5) that "Randomize
 // Background" also applies a non-None first-pass filter / second-pass
 // filter ("effect"). Checked as SYNC_RAND(1000) < chance*10 for one decimal
 // place of precision. Default via XComGame.ini: 10.0 / 2.5.
 var config float RandomizeBackgroundFilterChancePercent;
 var config float RandomizeBackgroundEffectChancePercent;
+// Tactical only: chance (percent, one decimal place) that "Randomize
+// Background" changes the map Location instead of picking a standard
+// background texture. Default via XComGame.ini: 75.0.
+var config float RandomizeBackgroundMapLocationChancePercent;
 // Number of Layout / Pose-Camera save slots shown as spinners. Slot storage
 // only ever grows to match this on load (EnsureSlotsInitialized) - lowering
 // it hides the extra slots from the UI but never deletes their saved data,
 // so raising it again brings them back.
 var config int NumLayoutSlots;
 var config int NumSquadSlots;
+// Fixed delay (seconds) after OnInit before applying the saved Layout/Pose
+// Camera presets. Needed because the base game's own random setup and
+// formation/pawn creation both continue asynchronously after OnInit returns,
+// so applying saved presets immediately gets overwritten once that finishes.
+// The poster is hidden for this whole delay, so it's not visible as a flash
+// - but slower machines may need a longer delay for presets to stick, while
+// faster ones can shorten it. Default via XComGame.ini: 0.15.
+var config float PhotoboothPresetLoadDelay;
 
 static function bool IsValidNMDPhotoboothSoldier (XComGameState_Unit Unit)
 {
