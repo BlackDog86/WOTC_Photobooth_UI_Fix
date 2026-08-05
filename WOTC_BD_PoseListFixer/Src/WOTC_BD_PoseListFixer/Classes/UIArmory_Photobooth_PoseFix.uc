@@ -31,6 +31,18 @@ function HidePosterElements(bool bHide)
 	}
 }
 
+// `PHOTOBOOTH.PosterElementsHidden() reads bShowInGame, which
+// HidePosterElements() above deliberately no longer touches (that's what
+// preserves a custom background) - so it's permanently stale and can't be
+// used to tell whether text is actually hidden anymore. This checks the
+// same UIRenderTarget field HidePosterElements() itself toggles instead.
+// m_kPhotoboothEffect has no privacy modifier, so this is safe to read
+// directly from here.
+function bool IsPosterTextHidden()
+{
+	return (`PHOTOBOOTH.m_kPhotoboothEffect != none) && (`PHOTOBOOTH.m_kPhotoboothEffect.UIRenderTarget == none);
+}
+
 simulated function OnInit()
 {	
 	local int			i, NumberNonBlank;
@@ -79,22 +91,17 @@ simulated function OnInit()
 		}
 		if(NumberNonBlank >= class'UIPoseFix_SaveLayout'.default.NumberOfNonBlankLinesInSavedLayout)
 		{		
-		class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
-		break;
+			class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
+			break;
 		}
 	}
 
-	// The base game's own random setup (background/text/pose/camera) and
-	// formation/pawn creation both continue asynchronously after OnInit
-	// returns, so applying our saved slots immediately here gets overwritten
-	// once that finishes. A short fixed delay before applying is simpler
-	// than chasing every async completion signal. The poster is hidden above
-	// so this is no longer visible as a flash - the delay just needs to be
-	// long enough for that async work to actually finish. Configurable via
-	// UIPoseFixHelpers.PhotoboothPresetLoadDelay (XComGame.ini) since machine
-	// speed affects how long that takes - raise it if presets still aren't
-	// sticking, lower it if the poster reveals with a visible pause.
-	SetTimer(class'UIPoseFixHelpers'.default.PhotoboothPresetLoadDelay, false, nameof(ApplySavedPhotoboothSlots));
+	// ApplySavedPhotoboothSlots() checks m_kGenRandomState itself and retries
+	// every 0.05s if the base game's own random setup isn't done yet -
+	// calling it directly (rather than behind a fixed delay first) means we
+	// apply as soon as it's actually safe to, instead of always waiting
+	// PhotoboothPresetLoadDelay even when the base game finishes sooner.
+	ApplySavedPhotoboothSlots();
 }
 
 function ApplySavedPhotoboothSlots()
@@ -235,12 +242,12 @@ function PopulateData()
 		case eUIPropagandaType_Pose:	
 			if(UIButton(self.GetChildByName('previousItems',false)) == none)
 			{
-			previousItemsButton = Spawn(class'UIButton',self).InitButton('previousItems', class'UIMPShell_Leaderboards'.default.m_strPreviousPageText, onSelectPrevious,eUIButtonStyle_HOTLINK_BUTTON);		
-			previousItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_LEFT);
-			previousItemsButton.SetPosition(75,864);
-			nextItemsButton = Spawn(class'UIButton',self).InitButton('nextItems', class'UIMPShell_Leaderboards'.default.m_strNextPageText, onSelectNext, eUIButtonStyle_HOTLINK_BUTTON);		
-			nextItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_RIGHT);
-			nextItemsButton.SetPosition(350,864);	
+				previousItemsButton = Spawn(class'UIButton',self).InitButton('previousItems', class'UIMPShell_Leaderboards'.default.m_strPreviousPageText, onSelectPrevious,eUIButtonStyle_HOTLINK_BUTTON);		
+				previousItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_LEFT);
+				previousItemsButton.SetPosition(75,864);
+				nextItemsButton = Spawn(class'UIButton',self).InitButton('nextItems', class'UIMPShell_Leaderboards'.default.m_strNextPageText, onSelectNext, eUIButtonStyle_HOTLINK_BUTTON);		
+				nextItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_RIGHT);
+				nextItemsButton.SetPosition(350,864);	
 			}
 			PopulatePoseList(i);
 			break;
@@ -325,32 +332,32 @@ function PopulatePoseList(out int Index)
 	// If we try to start at a number greater than the number of poses, go back to the first page:
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex > AnimationNames.Length)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = 0;
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = 0;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
 	}		
 	// We're going onto the last page so don't display loads of empty records
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex <= 0 || class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex >= AnimationNames.Length)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = AnimationNames.Length <= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay ? 0 : (AnimationNames.Length - (AnimationNames.Length % class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay));
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = AnimationNames.Length;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = AnimationNames.Length <= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay ? 0 : (AnimationNames.Length - (AnimationNames.Length % class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay));
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = AnimationNames.Length;
 	}	
 	else
 	{
-	//use default list size
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		//use default list size
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
 	}
-
-		//cover for situations where we have less poses than the 'number of elements to display'
-		if (AnimationNames.Length < class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay)
-		{
+	//cover for situations where we have less poses than the 'number of elements to display'
+	if (AnimationNames.Length < class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay)
+	{
 		endIndex = AnimationNames.Length;
-		}
-		else
-		{
+	}
+	else
+	{
 		endIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex;
-		}
+	}
 	`log("Building List:",,'BDLOG');
 	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
+	
 	for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
 	{
 		GetListItem(Index++).UpdateDataDescription(AnimationNames[i], OnConfirmPose); //bsg-jneal (5.16.17): now changing pose on selection change
@@ -547,24 +554,72 @@ function bool isBline(string CheckForBline)
 
 // Adds the Save Layout/Squad rows and their slot-selector spinners. Moving a
 // spinner immediately loads that slot - there's no separate Load button.
+// Filter and Effects (Treatment) moved into Background Options to save 2
+// slots here - see the PopulateBackgroundOptionsList override below. That
+// means not calling super.PopulateDefaultList() at all, since that's where
+// the base class adds them - reproducing the rest of its body here instead
+// (Formation/Edit Soldiers/Background Options/Layout/Text/Hide
+// Poster/Camera Presets spinner/Randomize), just without Filter, Effects,
+// or Reset (never added, so no need for the old Index-- reclaim trick).
+// Bonus: since we're constructing the Hide Poster checkbox ourselves now,
+// it uses IsPosterTextHidden() (our own correct getter) instead of the
+// stale `PHOTOBOOTH.PosterElementsHidden(), fixing its initial displayed
+// value in the general case - ApplyHidePosterDelayed's post-load correction
+// is still needed for the specific "just loaded a preset" timing gap.
 function PopulateDefaultList(out int Index)
 {
-	super.PopulateDefaultList(Index);
+	GetListItem(Index++).UpdateDataValue(m_CategoryFormations, `PHOTOBOOTH.m_kFormationTemplate.DisplayName, OnClickFormation);
+	GetListItem(Index++).UpdateDataDescription(m_CategorySoldiers, OnClickSoldiers);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryBackgroundOptions, OnClickBackgroundOptions);
+	GetListItem(Index++).UpdateDataValue(m_CategoryLayout, `PHOTOBOOTH.m_currentTextLayoutTemplate.DisplayName, OnClickTextLayout);
 
-	// "Reset" is the last row the base class adds (GetListItem(Index++).
-	// UpdateDataDescription(m_CategoryReset, OnReset) in UIPhotoboothBase).
-	// Reclaim that slot instead of appending after it, so our first row
-	// overwrites Reset rather than adding a new one below it.
-	Index--;
+	GetListItem(Index++).UpdateDataDescription(m_CategoryGraphics, OnClickGraphics);
+	if (bChallengeMode)
+	{
+		GetListItem(Index - 1).SetDisabled(true);
+	}
 
-	GetListItem(Index++).UpdateDataDescription("Randomize Background", OnClickedRandomizeBackground);
-	GetListItem(Index++).UpdateDataDescription("Randomize Text", OnClickedRandomizeText);
-	GetListItem(Index++).UpdateDataDescription("Randomize Layout", OnClickedRandomizeLayout);
-	GetListItem(Index++).UpdateDataDescription("Randomize Pose", OnClickedRandomizePose);
-	GetListItem(Index++).UpdateDataSpinner("Layout Preset", class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? "Random" : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
-	GetListItem(Index++).UpdateDataDescription("Save Layout", OnClickedSaveLayout);
-	GetListItem(Index++).UpdateDataSpinner("Pose Camera Preset", class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY) == -1 ? "Random" : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY) + 1), OnSquadSlotChanged);
-	GetListItem(Index++).UpdateDataDescription("Save Pose / Camera", OnClickedSaveSquad);
+	GetListItem(Index++).UpdateDataCheckbox(m_CategoryHidePoster, "", IsPosterTextHidden(), OnHidePoster);
+
+	//bsg-jedwards (5.1.17) : Adds Spinner to the options when using a controller
+	if(`ISCONTROLLERACTIVE)
+	{
+		GetListItem(Index++).UpdateDataSpinner(m_CategoryCameraPresets, m_CameraPresets_Labels[ModeSpinnerVal], UpdateMode_OnChanged);
+	}
+	//bsg-jedwards (5.1.17) : end
+
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom, OnRandomize);
+
+	List.OnSelectionChanged = OnDefaultListChange; //bsg-jneal (5.23.17): saving default list index for better nav
+
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_CategoryBackground, OnClickedRandomizeBackground);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_CategoryGraphics, OnClickedRandomizeText);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_CategoryLayout, OnClickedRandomizeLayout);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_PrefixPose, OnClickedRandomizePose);
+	GetListItem(Index++).UpdateDataSpinner(m_CategoryLayout @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
+	GetListItem(Index++).UpdateDataDescription(class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_CategoryLayout @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveLayout);
+	GetListItem(Index++).UpdateDataSpinner(m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY) == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY) + 1), OnSquadSlotChanged);
+	GetListItem(Index++).UpdateDataDescription(class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveSquad);
+}
+
+// Filter and Effects (Treatment), relocated here from PopulateDefaultList
+// above to save 2 slots in the main list. Identical to the base
+// implementation's own code for these two rows (GetFirstPassFilterData/
+// GetSecondPassFilterData/OnClickFirstPassFilter/OnClickSecondPassFilter,
+// m_CategoryFilter/m_CategoryTreatment), just called from here instead.
+function PopulateBackgroundOptionsList(out int Index)
+{
+	local array<string> FilterNames;
+	local int FilterIndex;
+
+	super.PopulateBackgroundOptionsList(Index);
+
+	GetFirstPassFilterData(FilterNames, FilterIndex);
+	GetListItem(Index++).UpdateDataValue(m_CategoryFilter, FilterNames[FilterIndex], OnClickFirstPassFilter);
+
+	FilterNames.Length = 0;
+	GetSecondPassFilterData(FilterNames, FilterIndex);
+	GetListItem(Index++).UpdateDataValue(m_CategoryTreatment, FilterNames[FilterIndex], OnClickSecondPassFilter);
 }
 
 function OnLayoutSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
@@ -579,7 +634,7 @@ function OnLayoutSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
 		NewSlot = -1;
 
 	class'UIPoseFix_SaveLayout'.static.SetSelectedSlot(NewSlot);
-	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
+	SpinnerControl.SetValue(NewSlot == -1 ? m_CategoryRandom : string(NewSlot + 1));
 	ApplyLayoutSlot();
 }
 
@@ -595,7 +650,7 @@ function OnSquadSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
 		NewSlot = -1;
 
 	class'UIPoseFix_SaveSquad'.static.SetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY, NewSlot);
-	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
+	SpinnerControl.SetValue(NewSlot == -1 ? m_CategoryRandom : string(NewSlot + 1));
 	ApplySquadSlot();
 }
 
@@ -614,10 +669,10 @@ function OnClickedSaveLayout()
 	class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex = `PHOTOBOOTH.GetSecondPassFilters(arrFilters);
 	class'UIPoseFix_SaveLayout'.default.GradientColor1Index = `PHOTOBOOTH.m_iGradientColor1Index;
 	class'UIPoseFix_SaveLayout'.default.GradientColor2Index = `PHOTOBOOTH.m_iGradientColor2Index;
-	class'UIPoseFix_SaveLayout'.default.HidePoster = `PHOTOBOOTH.PosterElementsHidden();
+	class'UIPoseFix_SaveLayout'.default.HidePoster = IsPosterTextHidden();
 
-	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
 	class'UIPoseFix_SaveLayout'.static.SaveCurrentToSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot);
+	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
 }
 
 function OnClickedRandomizeBackground()
@@ -772,6 +827,7 @@ function ApplySquadSlot(optional bool bApplyFormation = true)
 	local string FormationDataName;
 	local array<AnimationPoses> arrValidPoses;
 	local bool bPoseValid;
+	local bool bAnyPoseApplied;
 	local int i, j, NumSlotsToApply;
 
 	if (!class'UIPoseFix_SaveSquad'.static.LoadSquadFromSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY), FormationDataName, Soldiers, CameraSettings))
@@ -833,11 +889,24 @@ function ApplySquadSlot(optional bool bApplyFormation = true)
 		if (bPoseValid)
 		{
 			`PHOTOBOOTH.SetSoldierAnim(i, Soldiers[i].AnimationName, Soldiers[i].AnimationOffset);
+			bAnyPoseApplied = true;
 		}
 		else
 		{
 			`log("PoseFix ApplySquadSlot: saved pose" @ Soldiers[i].AnimationName @ "not valid for slot" @ i @ "'s current occupant (different class/gender?) - leaving current pose unchanged",,'BDLOG');
 		}
+	}
+
+	// If none of the saved poses were valid for their current occupants,
+	// nothing visibly changed about the pose - moving the camera anyway
+	// would look like something broke (framing snaps to the saved shot but
+	// the soldiers don't match it). Only adjust the camera when the preset
+	// actually did something.
+	if (!bAnyPoseApplied)
+	{
+		`log("PoseFix ApplySquadSlot: no saved poses were valid for current occupants, skipping camera update",,'BDLOG');
+		NeedsPopulateData();
+		return;
 	}
 
 	UpdateCameraToPOV(CameraSettings, true);
@@ -864,23 +933,37 @@ function bool ApplyLayoutSlot()
 	`PHOTOBOOTH.SetGradientColorIndex2(class'UIPoseFix_SaveLayout'.default.GradientColor2Index);
 	`PHOTOBOOTH.SetLayoutIndex(class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex);
 	NeedsPopulateData();
-	// The "Hide Poster" checkbox row gets reconstructed by the repopulate
-	// this NeedsPopulateData() triggers - if that construction fires
-	// OnHidePoster(false) on init (a common UI-framework pattern when a
-	// checkbox's bound value is first set), it would silently undo this
-	// right after. Defer it so it's guaranteed to run after that settles.
+
+	// The "Hide Poster" checkbox row just got constructed by the repopulate
+	// above, reading `PHOTOBOOTH.PosterElementsHidden() (bShowInGame) - which
+	// HidePosterElements() below doesn't touch, so the row displays the
+	// wrong state at this point. A second repopulate wouldn't help, since it
+	// would just re-read the same stale getter again. Defer the actual
+	// state change, then correct the already-existing checkbox widget
+	// directly instead.
 	SetTimer(0.05f, false, nameof(ApplyHidePosterDelayed));
 	return true;
 }
 
 function ApplyHidePosterDelayed()
 {
+	local int i;
+
 	HidePosterElements(class'UIPoseFix_SaveLayout'.default.HidePoster);
-	// The list already repopulated once (from ApplyLayoutSlot's own
-	// NeedsPopulateData()) before this delayed call ran, so the Hide Poster
-	// checkbox row was drawn reading the pre-delay state. Repopulate again
-	// now that the actual state is correct, so the checkbox catches up.
-	NeedsPopulateData();
+
+	// Same GetListItem(i).Checkbox pattern the base game's own
+	// OnToggleRotateSoldier() uses - finds the checkbox widget already
+	// sitting in the list (from the repopulate in ApplyLayoutSlot above)
+	// and corrects its displayed state directly, without needing another
+	// repopulate cycle that would just read the same stale getter again.
+	for (i = 0; i < List.ItemCount; i++)
+	{
+		if (GetListItem(i).Checkbox != none)
+		{
+			GetListItem(i).Checkbox.SetChecked(class'UIPoseFix_SaveLayout'.default.HidePoster);
+			break;
+		}
+	}
 }
 
 function OnSelectNext(optional UIButton nextItemsButton)
@@ -888,11 +971,11 @@ function OnSelectNext(optional UIButton nextItemsButton)
 	`SOUNDMGR.PlaySoundEvent("Generic_Mouse_Click");
 	if(currentState == eUIPropagandaType_Pose)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	List.OnSelectionChanged = none;
-	currentState = eUIPropagandaType_Pose;
-	NeedsPopulateData();
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		List.OnSelectionChanged = none;
+		currentState = eUIPropagandaType_Pose;
+		NeedsPopulateData();
 	}
 }
 
@@ -901,11 +984,11 @@ function OnSelectPrevious(optional UIButton previousItemsButton)
 	`SOUNDMGR.PlaySoundEvent("Generic_Mouse_Click");
 	if(currentState == eUIPropagandaType_Pose)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	List.OnSelectionChanged = none;
-	currentState = eUIPropagandaType_Pose;
-	NeedsPopulateData();
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		List.OnSelectionChanged = none;
+		currentState = eUIPropagandaType_Pose;
+		NeedsPopulateData();
 	}
 }
 

@@ -17,17 +17,7 @@ struct native SavedSquadSlot
 	var X2Photobooth.PhotoboothCameraSettings		CameraSettings;
 };
 
-// Three independent slot sets, NOT a shared one:
-// - Armory and Tactical: Tactical's SetSoldier() targets are restricted to
-//   BATTLE().GetHumanPlayer().GetOriginalUnits() - i.e. only soldiers
-//   actually deployed in that mission's squad - while Armory can place any
-//   roster soldier into any slot. A squad preset saved in Armory will often
-//   reference a soldier that has no valid pawn/placement in the current
-//   Tactical mission, so presets don't port cleanly between screens.
-// - Tactical and NMD (Nice Mission Briefings): NMD formation is always
-//   "Solo" (single soldier), so a squad-photo preset and an NMD preset are
-//   fundamentally different shapes - sharing slots meant saving a solo NMD
-//   pose could silently occupy the same slot as a full squad preset.
+// Three independent slot sets:
 var config array<SavedSquadSlot>	SavedArmorySquads;
 var config int						SelectedArmorySquadSlot;
 var config array<SavedSquadSlot>	SavedTacticalSquads;

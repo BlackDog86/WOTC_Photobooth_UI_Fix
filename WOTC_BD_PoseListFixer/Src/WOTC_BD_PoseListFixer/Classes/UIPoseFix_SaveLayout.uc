@@ -1,11 +1,6 @@
 class UIPoseFix_SaveLayout extends object config(PoseFixLayout);
 
-// Live tracking of the current poster's text (kept updated continuously by
-// OnInit/PopulateData in UIArmory_Photobooth_PoseFix / UITactical_Photobooth_PoseFix).
-// NOTE: no longer consumed by Load - Save/Load Layout intentionally leaves the
-// randomized poster text alone. Kept only because OnInit's retry loop still
-// compares NumberOfNonBlankLinesInSavedLayout against freshly-generated text
-// to avoid handing out a font/color array shorter than the current text.
+// Live tracking of the current poster's text 
 var config int				SavedLayoutTemplateIndex;
 var config int				NumberOfNonBlankLinesInSavedLayout;
 var config int				NumberOfNonBlankLinesInCurrentLayout;
@@ -16,10 +11,7 @@ var config string			lastBline;
 var config string			lastAline;
 var config string			lastOpline;
 var config bool				hasOpline;
-
-// Visual styling captured/restored by the layout slots. Deliberately excludes
-// the poster text itself (m_PosterStrings) - that stays whatever was
-// randomized for the current photo.
+// Visual styling captured/restored by the layout slots
 var config int				FirstPassFilterIndex;
 var config int				SecondPassFilterIndex;
 var config int				GradientColor1Index;
@@ -62,10 +54,7 @@ static function int GetNumSlots()
 	return Max(1, class'UIPoseFixHelpers'.default.NumLayoutSlots);
 }
 
-// Call once on init from PopulateData/OnInit before touching slots, mirrors
-// how the rest of the class relies on StaticSaveConfig() to persist defaults.
-// Only ever grows the array to match the configured count - lowering the
-// config value hides the extra slots but never deletes their saved data.
+// Called once on init from PopulateData/OnInit before touching slots
 static function EnsureSlotsInitialized()
 {
 	if (default.SavedLayouts.Length < GetNumSlots())
@@ -81,9 +70,7 @@ static function EnsureSlotsInitialized()
 }
 
 // SlotIndex of -1 means "Random" - no slot is loaded or saved, leaving the
-// base game's own random generation in place. SaveCurrentToSlot/LoadFromSlot
-// already treat SlotIndex < 0 as invalid/no-op, so -1 works with no other
-// changes needed there.
+// base game's own random generation in place
 static function SetSelectedSlot(int SlotIndex)
 {
 	EnsureSlotsInitialized();

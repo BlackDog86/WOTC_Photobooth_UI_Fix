@@ -5,3 +5,6 @@ GroupHeader = "General"
 
 RIGHT_CLICK_EXITS_SCREEN_Label = "Right-click closes the photobooth screen"
 RIGHT_CLICK_EXITS_SCREEN_Tip = "Disabling this checkbox means you have to click on the 'back/continue' buttons to exit the photobooth"
+
+[UITactical_Photobooth_PoseFix]
+m_strNMD="NMD"

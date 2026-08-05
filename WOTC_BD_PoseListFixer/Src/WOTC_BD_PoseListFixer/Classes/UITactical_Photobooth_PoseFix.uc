@@ -1,10 +1,10 @@
 class UITactical_Photobooth_PoseFix extends UITactical_Photobooth dependson(UIPoseFix_SaveSquad);
 
+var localized string m_strNMD;
+
 `include(WOTC_BD_PoseListFixer\Src\ModConfigMenuAPI\MCM_API_CfgHelpers.uci)
 
-// NMD (Nice Mission Briefings) is always "Solo" formation - a single-soldier
-// preset saved there is a fundamentally different shape than a full squad
-// preset, so it gets its own slot set rather than sharing Tactical's.
+// Special Handling for NMD
 function int GetSquadContext()
 {
 	if (class'UIPoseFixHelpers'.default.NMDPhotoboothActive)
@@ -12,23 +12,7 @@ function int GetSquadContext()
 	return class'UIPoseFix_SaveSquad'.const.CONTEXT_TACTICAL;
 }
 
-// Overridden so "Hide Poster" only hides the text/layout overlay, not the
-// background. The base implementation toggles `PHOTOBOOTH.bShowInGame,
-// which (via SetCaptureRenderChannels()) also switches which render
-// channel is active: with the poster effect off, the real 3D scene renders
-// instead of whatever background texture was set, discarding a custom
-// background entirely rather than just hiding text on top of it. Using
-// `PHOTOBOOTH.HidePosterTexture()/UpdatePosterTexture() instead (already
-// used internally for a related purpose - toggling just the UIRenderTarget)
-// removes only the text overlay, leaving bShowInGame/BackgroundTexture (and
-// therefore the render channel choice) untouched.
-// NOTE: `PHOTOBOOTH.PosterElementsHidden() - which the base game's own
-// "Hide Poster" checkbox construction reads directly, bypassing this
-// function - still reflects bShowInGame, which this no longer changes, so
-// the checkbox's own drawn checked-state may not visually track this
-// correctly. Text hiding itself is functionally correct either way. This
-// affects every caller of HidePosterElements() uniformly (the checkbox's
-// own click handler, and this mod's Layout preset restore).
+// Overridden so "Hide Poster" only hides the text/layout overlay
 function HidePosterElements(bool bHide)
 {
 	if (bHide)
@@ -39,6 +23,15 @@ function HidePosterElements(bool bHide)
 	{
 		`PHOTOBOOTH.UpdatePosterTexture();
 	}
+}
+
+// `PHOTOBOOTH.PosterElementsHidden() reads bShowInGame, which
+// HidePosterElements() above deliberately no longer touches (that's what
+// preserves a custom background) - so it's permanently stale and can't be
+// used to tell whether text is actually hidden anymore, hence this check instead.
+function bool IsPosterTextHidden()
+{
+	return (`PHOTOBOOTH.m_kPhotoboothEffect != none) && (`PHOTOBOOTH.m_kPhotoboothEffect.UIRenderTarget == none);
 }
 
 simulated function OnInit()
@@ -104,27 +97,11 @@ simulated function OnInit()
 		}
 	}
 
-	// The base game's own random setup (background/text/pose/camera) and
-	// formation/pawn creation both continue asynchronously after OnInit
-	// returns, so applying our saved slots immediately here gets overwritten
-	// once that finishes. A short fixed delay before applying is simpler
-	// than chasing every async completion signal. The poster is hidden above
-	// so this is no longer visible as a flash - the delay just needs to be
-	// long enough for that async work to actually finish. Configurable via
-	// UIPoseFixHelpers.PhotoboothPresetLoadDelay (XComGame.ini) since machine
-	// speed affects how long that takes - raise it if presets still aren't
-	// sticking, lower it if the poster reveals with a visible pause.
-	SetTimer(class'UIPoseFixHelpers'.default.PhotoboothPresetLoadDelay, false, nameof(ApplySavedPhotoboothSlots));
+	ApplySavedPhotoboothSlots();
 }
 
 function ApplySavedPhotoboothSlots()
-{
-	// The fixed startup delay alone isn't reliable - the base game's own
-	// random setup (background/text/pose/camera, driven by m_kGenRandomState
-	// via UpdateRandom()/Tick()) can still be mid-flight after the delay
-	// fires, and overwrite an already-correct restore on a later frame.
-	// Retry until it's actually done instead of assuming the delay was
-	// long enough.
+{	
 	if (m_kGenRandomState != eAGCS_Idle)
 	{
 		`log("PoseFix ApplySavedPhotoboothSlots: base game random setup still in progress (m_kGenRandomState =" @ m_kGenRandomState $ "), retrying shortly",,'BDLOG');
@@ -133,16 +110,10 @@ function ApplySavedPhotoboothSlots()
 	}
 
 	`log("PoseFix: applying saved Pose/Camera and Layout slots after startup delay",,'BDLOG');
-	// Pose/Camera first, since it can change formation; Layout after, so
-	// nothing overwrites its styling. ApplySquadSlot() targets NMD's own
-	// slot set via GetSquadContext() when NMD is active, so this is safe to
-	// always call - it can't collide with a squad-photo preset anymore.
+	
 	ApplySquadSlot();
 	if (!ApplyLayoutSlot())
-	{
-		// No Layout slot was applied (empty/Random) - nothing set the poster's
-		// visibility, so explicitly reveal it (it was hidden at OnInit purely
-		// to mask this delay).
+	{		
 		HidePosterElements(false);
 	}
 }
@@ -366,30 +337,29 @@ function PopulatePoseList(out int Index)
 	// If we try to start at a number greater than the number of poses, go back to the first page:
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex > AnimationNames.Length)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = 0;
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = 0;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
 	}		
 	// We're going onto the last page so don't display loads of empty records
 	if (class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex <= 0 || class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex >= AnimationNames.Length)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = AnimationNames.Length <= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay ? 0 : (AnimationNames.Length - (AnimationNames.Length % class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay));
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = AnimationNames.Length;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex = AnimationNames.Length <= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay ? 0 : (AnimationNames.Length - (AnimationNames.Length % class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay));
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = AnimationNames.Length;
 	}	
 	else
 	{
-	//use default list size
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		//use default list size
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
 	}
-
-		//cover for situations where we have less poses than the 'number of elements to display'
-		if (AnimationNames.Length < class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay)
-		{
+	//cover for situations where we have less poses than the 'number of elements to display'
+	if (AnimationNames.Length < class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay)
+	{
 		endIndex = AnimationNames.Length;
-		}
-		else
-		{
+	}
+	else
+	{
 		endIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex;
-		}
+	}
 	//`log("Building List:",,'BDLOG');
 	//`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
@@ -519,14 +489,14 @@ function CreatePosterCallback(StateObjectReference UnitRef)
 {
 	If(class'UIPoseFixHelpers'.default.NMDPhotoboothActive == true)
 	{
-	bWaitingOnPhoto = false;
-	`PRESBASE.GetPhotoboothMovie().RemoveScreen(`PHOTOBOOTH.m_backgroundPoster);
-	Movie.Pres.UICloseProgressDialog();
-	CloseScreen();
+		bWaitingOnPhoto = false;
+		`PRESBASE.GetPhotoboothMovie().RemoveScreen(`PHOTOBOOTH.m_backgroundPoster);
+		Movie.Pres.UICloseProgressDialog();
+		CloseScreen();
 	}
 	else
 	{
-	super.CreatePosterCallback(UnitRef);
+		super.CreatePosterCallback(UnitRef);
 	}
 }
 
@@ -731,11 +701,11 @@ function OnSelectNext(optional UIButton nextItemsButton)
 	`SOUNDMGR.PlaySoundEvent("Generic_Mouse_Click");
 	if(currentState == eUIPropagandaType_Pose)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	List.OnSelectionChanged = none;
-	currentState = eUIPropagandaType_Pose;
-	NeedsPopulateData();
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex += class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		List.OnSelectionChanged = none;
+		currentState = eUIPropagandaType_Pose;
+		NeedsPopulateData();
 	}
 }
 
@@ -744,11 +714,11 @@ function OnSelectPrevious(optional UIButton previousItemsButton)
 	`SOUNDMGR.PlaySoundEvent("Generic_Mouse_Click");
 	if(currentState == eUIPropagandaType_Pose)
 	{
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
-	List.OnSelectionChanged = none;
-	currentState = eUIPropagandaType_Pose;
-	NeedsPopulateData();
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex -= class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay;
+		List.OnSelectionChanged = none;
+		currentState = eUIPropagandaType_Pose;
+		NeedsPopulateData();
 	}
 }
 
@@ -782,22 +752,21 @@ function OnCancel()
 	switch (currentState)
 	{
 	case eUIPropagandaType_Base:			
-			If(`ISCONTROLLERACTIVE && class'UIPoseFixHelpers'.default.NMDPhotoboothActive == false)
+		If(`ISCONTROLLERACTIVE && class'UIPoseFixHelpers'.default.NMDPhotoboothActive == false)
+		{
+			//`log("Should be super closing screen here - Bool status:" @ class'UIPoseFixHelpers'.default.NMDPhotoboothActive,,'BDLOG');
+			CloseScreen();			
+			SummaryScreen = UIMissionSummary(Pres.ScreenStack.GetLastInstanceOf(class'UIMissionSummary'));
+			If(SummaryScreen != none)
 			{
-				//`log("Should be super closing screen here - Bool status:" @ class'UIPoseFixHelpers'.default.NMDPhotoboothActive,,'BDLOG');
-				CloseScreen();			
-				SummaryScreen = UIMissionSummary(Pres.ScreenStack.GetLastInstanceOf(class'UIMissionSummary'));
-				If(SummaryScreen != none)
-				{
-					SummaryScreen.Show();
-				}
+				SummaryScreen.Show();
 			}
-			else
-			{
+		}
+		else
+		{
 			CloseScreen();
-			}
-		break;
-	
+		}
+	break;	
 	case eUIPropagandaType_Soldier:
 		m_bRotatingPawn = false;
 	case eUIPropagandaType_Pose:
@@ -807,7 +776,6 @@ function OnCancel()
 		//List.SetSelectedIndex(m_bOriginalSubListIndex);
 		List.OnSelectionChanged = none;		
 		//bsg-jneal (5.16.17): end
-
 		currentState = eUIPropagandaType_SoldierData;
 		break;
 
@@ -857,24 +825,63 @@ function OnCancel()
 	NeedsPopulateData();
 }
 
+// Over-riding fully so that Filter and Effects can be moved into Background Options 
 function PopulateDefaultList(out int Index)
 {
-	super.PopulateDefaultList(Index);
+	local XGParamTag ParamTag;
 
-	// "Reset" is the last row the base class adds (GetListItem(Index++).
-	// UpdateDataDescription(m_CategoryReset, OnReset) in UIPhotoboothBase).
-	// Reclaim that slot instead of appending after it, so our first row
-	// overwrites Reset rather than adding a new one below it.
-	Index--;
+	ParamTag = XGParamTag(`XEXPANDCONTEXT.FindTag("XGParam"));
+	ParamTag.IntValue0 = m_kTacticalLocation.m_iCurrentStudioIndex + 1;
+	GetListItem(Index++).UpdateDataSpinner(m_LocationTitle, `XEXPAND.ExpandString(m_LocationStr), OnChangeStudioLocation);
 
-	GetListItem(Index++).UpdateDataDescription("Randomize Background", OnClickedRandomizeBackground);
-	GetListItem(Index++).UpdateDataDescription("Randomize Text", OnClickedRandomizeText);
-	GetListItem(Index++).UpdateDataDescription("Randomize Layout", OnClickedRandomizeLayout);
-	GetListItem(Index++).UpdateDataDescription("Randomize Pose", OnClickedRandomizePose);
-	GetListItem(Index++).UpdateDataSpinner("Layout Preset", class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? "Random" : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
-	GetListItem(Index++).UpdateDataDescription("Save Layout", OnClickedSaveLayout);
-	GetListItem(Index++).UpdateDataSpinner(class'UIPoseFixHelpers'.default.NMDPhotoboothActive ? "NMD Pose Preset" : "Pose Camera Preset", class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) == -1 ? "Random" : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) + 1), OnSquadSlotChanged);
-	GetListItem(Index++).UpdateDataDescription(class'UIPoseFixHelpers'.default.NMDPhotoboothActive ? "Save NMD Pose" : "Save Pose / Camera", OnClickedSaveSquad);
+	GetListItem(Index++).UpdateDataValue(m_CategoryFormations, `PHOTOBOOTH.m_kFormationTemplate.DisplayName, OnClickFormation);
+	GetListItem(Index++).UpdateDataDescription(m_CategorySoldiers, OnClickSoldiers);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryBackgroundOptions, OnClickBackgroundOptions);
+	GetListItem(Index++).UpdateDataValue(m_CategoryLayout, `PHOTOBOOTH.m_currentTextLayoutTemplate.DisplayName, OnClickTextLayout);
+
+	GetListItem(Index++).UpdateDataDescription(m_CategoryGraphics, OnClickGraphics);
+	if (bChallengeMode)
+	{
+		GetListItem(Index - 1).SetDisabled(true);
+	}
+
+	GetListItem(Index++).UpdateDataCheckbox(m_CategoryHidePoster, "", IsPosterTextHidden(), OnHidePoster);
+
+	//bsg-jedwards (5.1.17) : Adds Spinner to the options when using a controller
+	if(`ISCONTROLLERACTIVE)
+	{
+		GetListItem(Index++).UpdateDataSpinner(m_CategoryCameraPresets, m_CameraPresets_Labels[ModeSpinnerVal], UpdateMode_OnChanged);
+	}
+	//bsg-jedwards (5.1.17) : end
+
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom, OnRandomize);
+
+	List.OnSelectionChanged = OnDefaultListChange; //bsg-jneal (5.23.17): saving default list index for better nav
+
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_CategoryBackground $ " / " $ m_LocationTitle, OnClickedRandomizeBackground);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_CategoryGraphics, OnClickedRandomizeText);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_CategoryLayout, OnClickedRandomizeLayout);
+	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_PrefixPose, OnClickedRandomizePose);
+	GetListItem(Index++).UpdateDataSpinner(m_CategoryLayout @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
+	GetListItem(Index++).UpdateDataDescription(class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_CategoryLayout @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveLayout);
+	GetListItem(Index++).UpdateDataSpinner(class'UIPoseFixHelpers'.default.NMDPhotoboothActive ? m_strNMD @ m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset : m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()) + 1), OnSquadSlotChanged);
+	GetListItem(Index++).UpdateDataDescription(class'UIPoseFixHelpers'.default.NMDPhotoboothActive ? class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ caps(m_strNMD) @ m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset : class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveSquad);
+}
+
+// Overridden to allow the filters / effects to go in the background options list
+function PopulateBackgroundOptionsList(out int Index)
+{
+	local array<string> FilterNames;
+	local int FilterIndex;
+
+	super.PopulateBackgroundOptionsList(Index);
+
+	GetFirstPassFilterData(FilterNames, FilterIndex);
+	GetListItem(Index++).UpdateDataValue(m_CategoryFilter, FilterNames[FilterIndex], OnClickFirstPassFilter);
+
+	FilterNames.Length = 0;
+	GetSecondPassFilterData(FilterNames, FilterIndex);
+	GetListItem(Index++).UpdateDataValue(m_CategoryTreatment, FilterNames[FilterIndex], OnClickSecondPassFilter);
 }
 
 function OnLayoutSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
@@ -889,7 +896,7 @@ function OnLayoutSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
 		NewSlot = -1;
 
 	class'UIPoseFix_SaveLayout'.static.SetSelectedSlot(NewSlot);
-	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
+	SpinnerControl.SetValue(NewSlot == -1 ? m_CategoryRandom : string(NewSlot + 1));
 	ApplyLayoutSlot();
 }
 
@@ -905,7 +912,7 @@ function OnSquadSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
 		NewSlot = -1;
 
 	class'UIPoseFix_SaveSquad'.static.SetSelectedSlot(GetSquadContext(), NewSlot);
-	SpinnerControl.SetValue(NewSlot == -1 ? "Random" : string(NewSlot + 1));
+	SpinnerControl.SetValue(NewSlot == -1 ? m_CategoryRandom : string(NewSlot + 1));
 	ApplySquadSlot();
 }
 
@@ -922,10 +929,9 @@ function OnClickedSaveLayout()
 	class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex = `PHOTOBOOTH.GetSecondPassFilters(arrFilters);
 	class'UIPoseFix_SaveLayout'.default.GradientColor1Index = `PHOTOBOOTH.m_iGradientColor1Index;
 	class'UIPoseFix_SaveLayout'.default.GradientColor2Index = `PHOTOBOOTH.m_iGradientColor2Index;
-	class'UIPoseFix_SaveLayout'.default.HidePoster = `PHOTOBOOTH.PosterElementsHidden();
-
-	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
+	class'UIPoseFix_SaveLayout'.default.HidePoster = IsPosterTextHidden();
 	class'UIPoseFix_SaveLayout'.static.SaveCurrentToSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot);
+	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
 }
 
 function OnClickedRandomizeBackground()
@@ -936,18 +942,7 @@ function OnClickedRandomizeBackground()
 
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
 
-	// This screen's real "background" is the mission map itself
-	// (m_kTacticalLocation, the separate "Map Location" spinner) - changing
-	// that is usually more interesting than picking a flat background
-	// texture, so weight toward it. NextStudio()/PreviousStudio() are just
-	// thin wrappers (set m_iCurrentStudioIndex, set m_OnStudioLoaded, call
-	// SpawnStudio()) - do the same directly with a genuinely random index
-	// instead of +-1, for a true uniform pick across all locations on this
-	// map rather than a single step from wherever we currently are.
-	// Deliberately skips the spinner's bChangingLocation continuity-
-	// preserving camera math - for a randomize action, landing on the new
-	// location's own default framing is the desired outcome, not preserving
-	// the old one.
+	// 75% Chance to change the current map location to a random one
 	if (`SYNC_RAND(1000) < int(class'UIPoseFixHelpers'.default.RandomizeBackgroundMapLocationChancePercent * 10))
 	{
 		`log("PoseFix RandomizeBackground: location branch taken",,'BDLOG');
@@ -955,12 +950,7 @@ function OnClickedRandomizeBackground()
 		m_kTacticalLocation.m_OnStudioLoaded = OnRandomizedLocationLoaded;
 		m_kTacticalLocation.SpawnStudio();
 
-		// Changing location means the real mission map is now what should
-		// show through - reset the background texture to "None" in case a
-		// standard background texture is currently set (from an earlier
-		// randomize roll, or set by hand), otherwise it stays plastered over
-		// the new location instead of letting the map show. Same "find
-		// None" lookup RandomSetBackground() uses.
+		// Make sure that the background is set to "None" so we dont' get armoury backgrounds
 		GetBackgroundData(BackgroundNames, BackgroundIndex, ePBT_XCOM);
 		BackgroundIndex = INDEX_NONE;
 		for (i = 0; i < BackgroundNames.Length; ++i)
@@ -978,33 +968,16 @@ function OnClickedRandomizeBackground()
 	}
 	else
 	{
-		// RandomSetBackground() on this screen isn't a true randomizer - it
-		// deliberately snaps to "None" whenever that's an available option (so
-		// the real mission map shows through by default, rather than a fake
-		// backdrop), only falling back to a random pick if "None" isn't in the
-		// list at all. Do a real random pick instead (same
-		// GetBackgroundData/SetBackground calls, just without the "prefer
-		// None" bias), matching how the Armory version already behaves.
+		// 25% Chance for an Armoury Background to be generated
 		GetBackgroundData(BackgroundNames, BackgroundIndex, ePBT_XCOM);
 		BackgroundIndex = `SYNC_RAND(BackgroundNames.Length);
 		`log("PoseFix RandomizeBackground: texture branch taken, picked index" @ BackgroundIndex @ "of" @ BackgroundNames.Length @ "(" $ BackgroundNames[BackgroundIndex] $ ")",,'BDLOG');
 		SetBackground(BackgroundIndex, ePBT_XCOM, false);
+		// Re-roll background colours if an armoury background is selected 
+		`PHOTOBOOTH.SetGradientColorIndex1(`SYNC_RAND(`PHOTOBOOTH.m_FontColors.length));
+		`PHOTOBOOTH.SetGradientColorIndex2(`SYNC_RAND(`PHOTOBOOTH.m_FontColors.length));
 	}
-
-	// RandomSetBackground() only re-rolls the texture; the tint color indices
-	// are separate state that otherwise carries over unchanged, so with the
-	// tint checkbox on the background looks the same every time. Re-roll both,
-	// matching the same SYNC_RAND(m_FontColors.length) pattern the base game's
-	// own initial random setup uses.
-	`PHOTOBOOTH.SetGradientColorIndex1(`SYNC_RAND(`PHOTOBOOTH.m_FontColors.length));
-	`PHOTOBOOTH.SetGradientColorIndex2(`SYNC_RAND(`PHOTOBOOTH.m_FontColors.length));
-
-	// Weighted chance of a non-None filter/effect, same
-	// SYNC_RAND(100) < FilterChance pattern the base game's own initial
-	// random setup uses for first-pass filter, extended to one decimal place
-	// of precision (SYNC_RAND(1000) against chance*10) so a value like 2.5
-	// works. Each click is an independent roll - reset to None on failure
-	// rather than leaving whatever filter/effect was already applied.
+	// Small (config) chance to apply a filter
 	if (`SYNC_RAND(1000) < int(class'UIPoseFixHelpers'.default.RandomizeBackgroundFilterChancePercent * 10))
 	{
 		`PHOTOBOOTH.GetFirstPassFilters(arrFilters);
@@ -1014,7 +987,7 @@ function OnClickedRandomizeBackground()
 	{
 		`PHOTOBOOTH.SetFirstPassFilter(0);
 	}
-
+	// Small (config) chance to apply an effect
 	if (`SYNC_RAND(1000) < int(class'UIPoseFixHelpers'.default.RandomizeBackgroundEffectChancePercent * 10))
 	{
 		`PHOTOBOOTH.GetSecondPassFilters(arrFilters);
@@ -1032,14 +1005,7 @@ function OnRandomizedLocationLoaded()
 {
 	StudioLoadedUpdateCamera();
 	`log("PoseFix OnRandomizedLocationLoaded: StudioLoadedUpdateCamera done, scheduling ApplySquadSlotPoseCameraOnly in" @ class'UIPoseFixHelpers'.default.PhotoboothPresetLoadDelay @ "seconds",,'BDLOG');
-
-	// Reapply the saved Pose/Camera preset's POSE and CAMERA after a
-	// location change, but NOT its formation - a manually-changed formation
-	// shouldn't get silently overwritten by whatever preset happens to
-	// still be selected in the spinner (see ApplySquadSlotPoseCameraOnly).
-	// ApplySquadSlot() already no-ops harmlessly if "Random" is selected or
-	// the slot is empty. Deferred via the same configurable delay used
-	// elsewhere for "wait for async engine setup to settle".
+	// Reapply the Pose/Camera preset after randomizing
 	SetTimer(class'UIPoseFixHelpers'.default.PhotoboothPresetLoadDelay, false, nameof(ApplySquadSlotPoseCameraOnly));
 }
 
@@ -1059,16 +1025,10 @@ function OnClickedRandomizeText()
 
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
 
-	// SetAutoTextStrings() regenerates font/color/layout as a side effect of
-	// generating new text (it calls SetLayoutIndex() internally and rolls new
-	// fonts/colors). Snapshot those and restore them afterward so this button
-	// only changes the literal text content.
 	SavedFonts = `PHOTOBOOTH.m_PosterFont;
 	SavedColors = `PHOTOBOOTH.m_PosterStringColors;
 	SavedLayoutIndex = `PHOTOBOOTH.GetLayoutIndex();
 
-	// Same formation-size -> auto-text-usage mapping OnInit already uses when
-	// first generating text for the current formation.
 	if (`PHOTOBOOTH.m_kFormationTemplate.NumSoldiers == 1)
 	{
 		`PHOTOBOOTH.SetAutoTextStrings(ePBAT_SOLO);
@@ -1146,16 +1106,9 @@ function OnClickedSaveSquad()
 	CameraSettings.ViewDistance = m_kStudioCamera.GetCameraDistance();
 
 	// Both the camera's RotationPoint AND Rotation are absolute world-space
-	// values tied to whichever map "location" (m_kTacticalLocation) is
-	// currently active - meaningless once the location changes: position
-	// alone pointed the camera at empty space where the squad used to stand,
-	// and even with position fixed, rotation alone meant "face-on" wouldn't
-	// stay face-on if a different location's formation faces a different
-	// way. Store both relative to the formation placement actor's own
-	// location AND rotation instead - the same technique
-	// OnChangeStudioLocation() uses (just anchored to the formation's frame
-	// rather than the previous camera rotation, since we're reconstructing a
-	// saved preset rather than preserving in-progress framing).
+	// values are tied to whichever map "location" (m_kTacticalLocation) is
+	// currently active. Store both relative to the formation placement actor's own
+	// location AND rotation instead.
 	FormationActor = m_kTacticalLocation.GetFormationPlacementActor();
 	WorldOffset = m_kStudioCamera.GetCameraOffset() - FormationActor.Location;
 	GetAxes(FormationActor.Rotation, VecX, VecY, VecZ);
@@ -1177,6 +1130,7 @@ function ApplySquadSlot(optional bool bApplyFormation = true)
 	local Vector VecX, VecY, VecZ, RelativeOffset;
 	local array<AnimationPoses> arrValidPoses;
 	local bool bPoseValid;
+	local bool bAnyPoseApplied;
 	local int i, j, NumSlotsToApply;
 
 	if (!class'UIPoseFix_SaveSquad'.static.LoadSquadFromSlot(GetSquadContext(), class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(GetSquadContext()), FormationDataName, Soldiers, CameraSettings))
@@ -1214,15 +1168,6 @@ function ApplySquadSlot(optional bool bApplyFormation = true)
 	`log("PoseFix ApplySquadSlot: applying pose to" @ NumSlotsToApply @ "of" @ Soldiers.Length @ "saved soldier slots (current formation NumSoldiers =" @ `PHOTOBOOTH.m_kFormationTemplate.NumSoldiers $ ")",,'BDLOG');
 	for (i = 0; i < NumSlotsToApply; i++)
 	{
-		// Poses are class/gender restricted (e.g. many are excluded for
-		// Templar, and some mods only add poses to specific animsets), so a
-		// pose saved against one soldier may not be a valid choice for
-		// whoever currently occupies this slot. GetAnimations() already
-		// returns exactly the poses valid for the CURRENT occupant of this
-		// slot, so check the saved pose against that list rather than
-		// assuming it still applies. If it's not valid, leave that one
-		// soldier's current pose untouched instead of forcing an invalid
-		// pose or substituting a random one.
 		arrValidPoses.Length = 0;
 		`PHOTOBOOTH.GetAnimations(i, arrValidPoses);
 		bPoseValid = false;
@@ -1238,6 +1183,7 @@ function ApplySquadSlot(optional bool bApplyFormation = true)
 		if (bPoseValid)
 		{
 			`PHOTOBOOTH.SetSoldierAnim(i, Soldiers[i].AnimationName, Soldiers[i].AnimationOffset);
+			bAnyPoseApplied = true;
 		}
 		else
 		{
@@ -1245,27 +1191,20 @@ function ApplySquadSlot(optional bool bApplyFormation = true)
 		}
 	}
 
-	// CameraSettings.RotationPoint/Rotation were saved relative to the
-	// formation placement actor's own location/rotation (see
-	// OnClickedSaveSquad), not as absolute world values - reconstruct both
-	// using wherever/however the formation is currently placed, so framing
-	// (including "face-on") is preserved regardless of which map location
-	// is active.
+	// Only adjust the camera if the pose is valid 
+	if (!bAnyPoseApplied)
+	{
+		`log("PoseFix ApplySquadSlot: no saved poses were valid for current occupants, skipping camera update",,'BDLOG');
+		NeedsPopulateData();
+		return;
+	}
+		
 	FormationActor = m_kTacticalLocation.GetFormationPlacementActor();
 	GetAxes(FormationActor.Rotation, VecX, VecY, VecZ);
 	RelativeOffset = CameraSettings.RotationPoint.X * VecX + CameraSettings.RotationPoint.Y * VecY + CameraSettings.RotationPoint.Z * VecZ;
 	CameraSettings.RotationPoint = FormationActor.Location + RelativeOffset;
 	CameraSettings.Rotation = CameraSettings.Rotation + FormationActor.Rotation;
-
-	// UpdateCameraToPOV() has a bChangingLocation branch that applies an
-	// extra rotation/offset adjustment - that's the vanilla "Map Location"
-	// spinner's own mechanism for preserving camera continuity across a
-	// manual location change, using m_fLastCamRotation/m_vLastCamOffset. It
-	// only resets to false from inside that branch, so if it's left over
-	// true from an earlier spinner interaction, our restore below would get
-	// that unrelated adjustment piled on top of the already-correct
-	// position using stale values that have nothing to do with this preset.
-	// Force it false first so that branch never fires here.
+		
 	bChangingLocation = false;
 	UpdateCameraToPOV(CameraSettings, true);
 	NeedsPopulateData();
@@ -1281,8 +1220,7 @@ function bool ApplyLayoutSlot()
 
 	`log("PoseFix ApplyLayoutSlot: slot" @ class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot @ "loaded, applying styling",,'BDLOG');
 
-	// Deliberately does not touch `PHOTOBOOTH.m_PosterStrings - the randomized
-	// poster text stays as-is. Only styling is restored.
+	// Deliberately does not touch `PHOTOBOOTH.m_PosterStrings 
 	`PHOTOBOOTH.m_PosterFont = class'UIPoseFix_SaveLayout'.default.PosterFonts;
 	`PHOTOBOOTH.m_PosterStringColors = class'UIPoseFix_SaveLayout'.default.PosterStringColors;
 	`PHOTOBOOTH.SetFirstPassFilter(class'UIPoseFix_SaveLayout'.default.FirstPassFilterIndex);
@@ -1290,24 +1228,27 @@ function bool ApplyLayoutSlot()
 	`PHOTOBOOTH.SetGradientColorIndex1(class'UIPoseFix_SaveLayout'.default.GradientColor1Index);
 	`PHOTOBOOTH.SetGradientColorIndex2(class'UIPoseFix_SaveLayout'.default.GradientColor2Index);
 	`PHOTOBOOTH.SetLayoutIndex(class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex);
+	
 	NeedsPopulateData();
-	// The "Hide Poster" checkbox row gets reconstructed by the repopulate
-	// this NeedsPopulateData() triggers - if that construction fires
-	// OnHidePoster(false) on init (a common UI-framework pattern when a
-	// checkbox's bound value is first set), it would silently undo this
-	// right after. Defer it so it's guaranteed to run after that settles.
+	// Defer hide poster checkbox to ensure it updates properly
 	SetTimer(0.05f, false, nameof(ApplyHidePosterDelayed));
 	return true;
 }
 
 function ApplyHidePosterDelayed()
 {
+	local int i;
+
 	HidePosterElements(class'UIPoseFix_SaveLayout'.default.HidePoster);
-	// The list already repopulated once (from ApplyLayoutSlot's own
-	// NeedsPopulateData()) before this delayed call ran, so the Hide Poster
-	// checkbox row was drawn reading the pre-delay state. Repopulate again
-	// now that the actual state is correct, so the checkbox catches up.
-	NeedsPopulateData();
+
+	for (i = 0; i < List.ItemCount; i++)
+	{
+		if (GetListItem(i).Checkbox != none)
+		{
+			GetListItem(i).Checkbox.SetChecked(class'UIPoseFix_SaveLayout'.default.HidePoster);
+			break;
+		}
+	}
 }
 
 simulated function bool OnUnrealCommand(int ucmd, int arg)
