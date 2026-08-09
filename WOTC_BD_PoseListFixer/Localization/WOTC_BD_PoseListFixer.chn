@@ -1,0 +1,9 @@
+[UIArmory_Photobooth_PoseFix]
+m_strBlacklistPoses="所有阵型"
+m_strGroupRestrictPoses="团队阵型"
+m_strPoseBlacklistHeader="排除"
+
+[UITactical_Photobooth_PoseFix]
+m_strBlacklistPoses="所有阵型"
+m_strGroupRestrictPoses="团队阵型"
+m_strPoseBlacklistHeader="排除"

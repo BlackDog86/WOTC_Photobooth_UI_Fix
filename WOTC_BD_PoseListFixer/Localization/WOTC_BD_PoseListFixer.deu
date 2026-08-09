@@ -1,0 +1,9 @@
+[UIArmory_Photobooth_PoseFix]
+m_strBlacklistPoses="ALLE FORMATIONEN"
+m_strGroupRestrictPoses="GRUPPENFORMATIONEN"
+m_strPoseBlacklistHeader="AUSSCHLIESSEN"
+
+[UITactical_Photobooth_PoseFix]
+m_strBlacklistPoses="ALLE FORMATIONEN"
+m_strGroupRestrictPoses="GRUPPENFORMATIONEN"
+m_strPoseBlacklistHeader="AUSSCHLIESSEN"

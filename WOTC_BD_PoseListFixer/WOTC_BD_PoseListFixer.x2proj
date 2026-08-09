@@ -18,10 +18,43 @@
     <Folder Include="Src\WOTC_BD_PoseListFixer\Classes\" />
   </ItemGroup>
   <ItemGroup>
+    <Content Include="Config\XComContent.ini">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Config\XComPoseListFixer_DEFAULT.ini">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.chn">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.cht">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.deu">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.esn">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.fra">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Localization\WOTC_BD_PoseListFixer.int">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.ita">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.jpn">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.kor">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.pol">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Localization\WOTC_BD_PoseListFixer.rus">
       <SubType>Content</SubType>
     </Content>
     <Content Include="ReadMe.txt" />
@@ -86,7 +119,13 @@
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_NextClickWrapper.uc">
       <SubType>Content</SubType>
     </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_PosterButtonWrapper.uc">
+      <SubType>Content</SubType>
+    </Content>
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_PreviousClickWrapper.uc">
+      <SubType>Content</SubType>
+    </Content>
+    <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_SaveBackground.uc">
       <SubType>Content</SubType>
     </Content>
     <Content Include="Src\WOTC_BD_PoseListFixer\Classes\UIPoseFix_SaveLayout.uc">

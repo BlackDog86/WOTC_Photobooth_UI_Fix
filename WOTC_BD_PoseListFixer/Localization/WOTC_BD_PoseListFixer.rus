@@ -1,0 +1,9 @@
+[UIArmory_Photobooth_PoseFix]
+m_strBlacklistPoses="ВСЕ ПОСТРОЕНИЯ"
+m_strGroupRestrictPoses="ГРУППОВЫЕ ПОСТРОЕНИЯ"
+m_strPoseBlacklistHeader="ИСКЛЮЧИТЬ"
+
+[UITactical_Photobooth_PoseFix]
+m_strBlacklistPoses="ВСЕ ПОСТРОЕНИЯ"
+m_strGroupRestrictPoses="ГРУППОВЫЕ ПОСТРОЕНИЯ"
+m_strPoseBlacklistHeader="ИСКЛЮЧИТЬ"

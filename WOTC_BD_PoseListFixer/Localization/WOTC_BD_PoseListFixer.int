@@ -8,3 +8,13 @@ RIGHT_CLICK_EXITS_SCREEN_Tip = "Disabling this checkbox means you have to click 
 
 [UITactical_Photobooth_PoseFix]
 m_strNMD="NMD"
+
+[UIArmory_Photobooth_PoseFix]
+m_strBlacklistPoses="ALL FORMATIONS"
+m_strGroupRestrictPoses="GROUP FORMATIONS"
+m_strPoseBlacklistHeader="EXCLUDE"
+
+[UITactical_Photobooth_PoseFix]
+m_strBlacklistPoses="ALL FORMATIONS"
+m_strGroupRestrictPoses="GROUP FORMATIONS"
+m_strPoseBlacklistHeader="EXCLUDE"

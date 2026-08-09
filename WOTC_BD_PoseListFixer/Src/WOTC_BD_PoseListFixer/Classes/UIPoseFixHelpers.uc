@@ -23,9 +23,10 @@ var config float RandomizeBackgroundEffectChancePercent;
 // Tactical only: chance (percent, one decimal place) that "Randomize
 // Background" changes the map Location
 var config float RandomizeBackgroundMapLocationChancePercent;
-// Number of Layout / Pose  slots shown as spinners
+// Number of Layout / Pose / Background slots shown as spinners
 var config int NumLayoutSlots;
 var config int NumSquadSlots;
+var config int NumBackgroundSlots;
 // Fixed delay (seconds) after OnInit before applying the saved Layout/Pose presets
 var config float PhotoboothPresetLoadDelay;
 

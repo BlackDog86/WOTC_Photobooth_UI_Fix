@@ -2,6 +2,66 @@ class UIArmory_Photobooth_PoseFix extends UIArmory_Photobooth dependson(UIPoseFi
 
 `include(WOTC_BD_PoseListFixer\Src\ModConfigMenuAPI\MCM_API_CfgHelpers.uci)
 
+// bPoseBlacklistModeActive: toggled via the "Restrict From All Formations"
+// row in PoseModeList - shows every pose (unfiltered) as checkboxes while
+// active, checked = already excluded. BlacklistModePagePoses caches the
+// current page's poses in render order, so OnPoseCheckboxToggled can map a
+// checkbox back to its pose via index.
+var bool bPoseBlacklistModeActive;
+// bGroupRestrictModeActive: same idea, second independent row, for editing
+// GroupPoseRestrictions instead of ExcludedPoses. Mutually exclusive with
+// bPoseBlacklistModeActive - toggling one off if the other's turned on.
+var bool bGroupRestrictModeActive;
+var array<AnimationPoses> BlacklistModePagePoses;
+
+// Full (unsliced) filtered pose array from PopulatePoseList's last render -
+// OnSetPose reads this instead of re-calling GetAnimations() on every
+// single hover/selection change, since GetAnimations() internally re-scans
+// the entire PoseFormationRestrictions list per pose every time it's
+// called (see RestrictedFromFormation) - that cost is unavoidable per
+// call, but there's no need to pay it again for every mouse movement over
+// a list whose content hasn't changed since it was last rendered.
+var array<AnimationPoses> CachedFilteredAnimationPoses;
+
+// Tracks exactly which GroupPoseRestrictions entries this screen instance
+// has itself injected into the live PHOTOBOOTH.PoseFormationRestrictions,
+// so SyncGroupPoseRestrictionsToLiveSession's removal step only ever
+// touches entries we added - never a native or another mod's restriction
+// that happens to share the same fields.
+var array<X2Photobooth.PoseFormationRestrictionInfo> InjectedGroupRestrictions;
+
+// Poses actually toggled during the current group-restrict edit session
+// (deduplicated) - lets the mode-exit flush sync only what changed instead
+// of re-diffing every restriction that exists, however many there are. See
+// SyncGroupPoseRestrictionForPose.
+var array<AnimationPoses> DirtyGroupRestrictPoses;
+
+// The real formation in effect before group-restrict review mode switched
+// to the dedicated review formation - restored when review mode exits.
+var X2PropagandaPhotoTemplate SavedFormationBeforeGroupRestrictReview;
+
+// Maps each displayed formation row to its real index in
+// `PHOTOBOOTH.GetFormations()` - needed because GetFormationData filters
+// BD_PoseFixReview out of the list, so row position and raw index diverge.
+var array<int> FormationListRealIndices;
+
+// Small list near the bottom of the pose screen with a header row
+// ("Pose Blacklist") and two selectable rows for the two edit modes below -
+// see BuildPoseModeList. Replaces the old blacklistPoses/groupRestrict
+// UIButtons.
+var UIList PoseModeList;
+
+// Needs .int entries (m_strBlacklistPoses=Blacklist Poses,
+// m_strGroupRestrictPoses=Restrict From Group Poses,
+// m_strPoseBlacklistHeader=Pose Blacklist), like m_strNMD.
+// TEMPORARY: plain (not localized) strings, since a localized var can't
+// have a defaultproperties entry - compiler rejects the combination. Once
+// real .int entries exist for these, switch back to `var localized string`
+// and drop the defaultproperties lines, matching m_strNMD's pattern.
+var localized string m_strBlacklistPoses;
+var localized string m_strGroupRestrictPoses;
+var localized string m_strPoseBlacklistHeader;
+
 // Overridden so "Hide Poster" only hides the text/layout overlay, not the
 // background. The base implementation toggles `PHOTOBOOTH.bShowInGame,
 // which (via SetCaptureRenderChannels()) also switches which render
@@ -43,12 +103,124 @@ function bool IsPosterTextHidden()
 	return (`PHOTOBOOTH.m_kPhotoboothEffect != none) && (`PHOTOBOOTH.m_kPhotoboothEffect.UIRenderTarget == none);
 }
 
+// Pushes persisted GroupPoseRestrictions into the live X2Photobooth
+// instance, which RestrictedFromFormation() reads directly. Only called
+// once, at OnInit.
+//
+// PHOTOBOOTH is a fresh instance every time the photobooth screen opens
+// (confirmed via diagnostic logging - X2Photobooth_LEBPortrait_1, _2, _3...
+// incrementing per visit, never reused) - a new instance's
+// PoseFormationRestrictions only ever contains whatever's ini-defined
+// (native or another mod's entries), never anything injected at runtime by
+// a previous instance, since that only ever lived in the now-destroyed
+// object's memory and we deliberately never call SaveConfig on
+// X2Photobooth itself (see GroupPoseRestrictions in
+// BD_PoseListFixer_MCMScreen.uc for why). So nothing here could possibly
+// already be live, and InjectedGroupRestrictions (this fresh screen
+// instance's own var) is always empty too - no diffing needed at all, just
+// a straight bulk add. If PHOTOBOOTH's construction semantics ever change
+// such that it can persist across visits, this would need to go back to
+// checking for already-live entries first.
+function SyncGroupPoseRestrictionsToLiveSession()
+{
+	local X2Photobooth.PoseFormationRestrictionInfo PersistedEntry;
+
+	InjectedGroupRestrictions.Length = 0;
+	foreach class'BD_PoseListFixer_MCMScreen'.default.GroupPoseRestrictions(PersistedEntry)
+	{
+		`PHOTOBOOTH.PoseFormationRestrictions.AddItem(PersistedEntry);
+		InjectedGroupRestrictions.AddItem(PersistedEntry);
+	}
+}
+
+
+
+// Fast path for the mode-exit flush. Unlike SyncGroupPoseRestrictionsToLiveSession
+// (a plain bulk-add, safe only at OnInit because PHOTOBOOTH is always a
+// fresh instance there - see that function's comment), this can't skip
+// straight to bulk-adding: PHOTOBOOTH already has this session's earlier
+// injections live, so it needs to know exactly which of THIS pose's
+// entries to drop before re-adding, without touching anything else. During
+// an edit session we know exactly which poses were touched
+// (DirtyGroupRestrictPoses) - this only touches entries for one specific
+// pose, bounded by the number of formations, not by how many restrictions
+// exist in total.
+function SyncGroupPoseRestrictionForPose(name AnimationName, float AnimationOffset)
+{
+	local X2Photobooth.PoseFormationRestrictionInfo Entry;
+	local int i, j;
+
+	// Drop anything previously injected for this pose. Simplest correct way
+	// to handle every case (still restricted for some formations but not
+	// others, or fully unchecked now) without extra per-formation bookkeeping.
+	for (i = InjectedGroupRestrictions.Length - 1; i >= 0; i--)
+	{
+		if (InjectedGroupRestrictions[i].AnimationName != AnimationName
+			|| InjectedGroupRestrictions[i].AnimationOffset != AnimationOffset)
+		{
+			continue;
+		}
+
+		for (j = `PHOTOBOOTH.PoseFormationRestrictions.Length - 1; j >= 0; j--)
+		{
+			if (`PHOTOBOOTH.PoseFormationRestrictions[j].AnimationName == InjectedGroupRestrictions[i].AnimationName
+				&& `PHOTOBOOTH.PoseFormationRestrictions[j].AnimationOffset == InjectedGroupRestrictions[i].AnimationOffset
+				&& `PHOTOBOOTH.PoseFormationRestrictions[j].FormationName == InjectedGroupRestrictions[i].FormationName)
+			{
+				`PHOTOBOOTH.PoseFormationRestrictions.Remove(j, 1);
+				break;
+			}
+		}
+		InjectedGroupRestrictions.Remove(i, 1);
+	}
+
+	// Re-add whatever's now persisted for this pose - SetPoseGroupRestricted
+	// already built one entry per applicable formation (or none, if this
+	// pose was just unchecked).
+	for (i = 0; i < class'BD_PoseListFixer_MCMScreen'.default.GroupPoseRestrictions.Length; i++)
+	{
+		Entry = class'BD_PoseListFixer_MCMScreen'.default.GroupPoseRestrictions[i];
+		if (Entry.AnimationName != AnimationName || Entry.AnimationOffset != AnimationOffset)
+		{
+			continue;
+		}
+
+		`PHOTOBOOTH.PoseFormationRestrictions.AddItem(Entry);
+		InjectedGroupRestrictions.AddItem(Entry);
+	}
+}
+
+// Called once when group-restrict review mode is exited - syncs only the
+// poses actually touched this session (see OnGroupRestrictCheckboxToggled),
+// then clears the dirty list for next time.
+function FlushDirtyGroupPoseRestrictions()
+{
+	local int i;
+
+	for (i = 0; i < DirtyGroupRestrictPoses.Length; i++)
+	{
+		SyncGroupPoseRestrictionForPose(DirtyGroupRestrictPoses[i].AnimationName, DirtyGroupRestrictPoses[i].AnimationOffset);
+	}
+	DirtyGroupRestrictPoses.Length = 0;
+}
+
 simulated function OnInit()
 {	
 	local int			i, NumberNonBlank;
 	local string		TestString;
 
 	Super.OnInit();
+
+	// UIPhotoboothBase spawns the list at (0,0) relative to ListContainer,
+	// size 515x633 - the extra Background preset rows (spinner + save
+	// button) added in PopulateDefaultList push it just past that height,
+	// needing a scrollbar. Growing height only, without moving position -
+	// there's a title element directly above the list's original spot with
+	// no margin to spare, so shifting position up (as tried first) overlaps
+	// it. First-pass value - adjust if it's still short or now oversized.
+	List.SetHeight(643);
+
+	SyncGroupPoseRestrictionsToLiveSession();
 
 	// Hide the poster overlay until our saved slots are actually applied,
 	// so the transient auto-generated layout never becomes visible - masks
@@ -119,10 +291,12 @@ function ApplySavedPhotoboothSlots()
 		return;
 	}
 
-	`log("PoseFix: applying saved Pose/Camera and Layout slots after startup delay",,'BDLOG');
-	// Pose/Camera first, since it can change formation; Layout after, so
-	// nothing overwrites its styling.
+	`log("PoseFix: applying saved Pose/Camera, Background, and Layout slots after startup delay",,'BDLOG');
+	// Pose/Camera first, since it can change formation; Background and
+	// Layout are independent of each other and of Pose/Camera, so their
+	// relative order here doesn't matter - Layout last just for readability.
 	ApplySquadSlot();
+	ApplyBackgroundSlot();
 	if (!ApplyLayoutSlot())
 	{
 		// No Layout slot was applied (empty/Random) - nothing set the poster's
@@ -132,16 +306,39 @@ function ApplySavedPhotoboothSlots()
 	}
 }
 
+// List.SelectedIndex is a row position within the CURRENT PAGE, not an
+// absolute index - this mod's own PopulatePoseList paginates the normal
+// browsing list the same way it paginates the edit-mode checkbox list, not
+// just GetAnimationData's full (unpaginated) filtered list. Add
+// UIPhotoboothPoseStartIndex to get the absolute position in arrAnimations
+// below, same as PopulatePoseList's own render loop does.
+// Uses PopulatePoseList's cache (CachedFilteredAnimationPoses) instead of
+// calling GetAnimations() again here - this fires on every hover/selection
+// change, and a fresh native call on every mouse movement over the list
+// would re-pay the same restriction-scan cost repeatedly for content that
+// hasn't changed since the list was last rendered. The cache already
+// reflects whichever filtering PopulatePoseList applied (or skipped, in
+// blacklist mode), so no extra mode-checking is needed here.
 function OnSetPose(UIList ContainerList, int ItemIndex)
 {
-	local array<AnimationPoses> arrAnimations;
-	local int CurrAnimationIndex;
+	local int CurrAnimationIndex, AbsoluteIndex, i;
 
-	CurrAnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
-
-	if (List.SelectedIndex != CurrAnimationIndex)
+	CurrAnimationIndex = INDEX_NONE;
+	for (i = 0; i < CachedFilteredAnimationPoses.Length; ++i)
 	{
-		`PHOTOBOOTH.SetSoldierAnim(m_iLastTouchedSoldierIndex, arrAnimations[class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + List.SelectedIndex].AnimationName, arrAnimations[class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + List.SelectedIndex].AnimationOffset);
+		if (CachedFilteredAnimationPoses[i].AnimationName == `PHOTOBOOTH.m_arrUnits[m_iLastTouchedSoldierIndex].AnimationName &&
+			CachedFilteredAnimationPoses[i].AnimationOffset == `PHOTOBOOTH.m_arrUnits[m_iLastTouchedSoldierIndex].AnimationOffset)
+		{
+			CurrAnimationIndex = i;
+			break;
+		}
+	}
+
+	AbsoluteIndex = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex + List.SelectedIndex;
+
+	if (AbsoluteIndex != CurrAnimationIndex && AbsoluteIndex >= 0 && AbsoluteIndex < CachedFilteredAnimationPoses.Length)
+	{
+		`PHOTOBOOTH.SetSoldierAnim(m_iLastTouchedSoldierIndex, CachedFilteredAnimationPoses[AbsoluteIndex].AnimationName, CachedFilteredAnimationPoses[AbsoluteIndex].AnimationOffset);
 	}
 }
 
@@ -162,6 +359,27 @@ function PopulateData()
 			// Remove vbuttons and restore normal title when we back out of the pose screen
 			UIButton(self.GetChildByName('previousItems',false)).Remove();
 			UIButton(self.GetChildByName('nextItems',false)).Remove();
+			if (PoseModeList != none)
+			{
+				PoseModeList.Remove();
+				PoseModeList = none;
+			}
+			// Backing out of the pose screen lands here directly, bypassing
+			// OnToggleGroupRestrictMode entirely - so if review mode was
+			// active, flush its deferred changes and restore the real
+			// formation ourselves.
+			if (bGroupRestrictModeActive)
+			{
+				class'BD_PoseListFixer_MCMScreen'.static.PersistGroupRestrictions();
+				FlushDirtyGroupPoseRestrictions();
+			}
+			bPoseBlacklistModeActive = false;
+			bGroupRestrictModeActive = false;
+			if (SavedFormationBeforeGroupRestrictReview != none)
+			{
+				`PHOTOBOOTH.m_kFormationTemplate = SavedFormationBeforeGroupRestrictReview;
+				SavedFormationBeforeGroupRestrictReview = none;
+			}
 			setCategory(m_PhotoboothTitle);			
 			// only check if we are returning to soldier data list
 			if(lastState == eUIPropagandaType_Pose)
@@ -249,6 +467,10 @@ function PopulateData()
 				nextItemsButton.SetGamepadIcon(class'UIUtilities_Input'.const.ICON_DPAD_RIGHT);
 				nextItemsButton.SetPosition(350,864);	
 			}
+			if(PoseModeList == none)
+			{
+				BuildPoseModeList();
+			}
 			PopulatePoseList(i);
 			break;
 		case eUIPropagandaType_BackgroundOptions:
@@ -319,13 +541,53 @@ function PopulateData()
 function PopulatePoseList(out int Index)
 {
 	local array<string> AnimationNames;
+	local array<AnimationPoses> AnimationPosesData;
 	local int AnimationIndex, i, endIndex;
 	local string poseHeader;
 	local int numPages;
 	local int currentPage;
 
-	GetAnimationData(m_iLastTouchedSoldierIndex, AnimationNames, AnimationIndex);
-	
+	// GetAnimations() internally scans the full PoseFormationRestrictions
+	// list for every single pose (RestrictedFromFormation, unconditional,
+	// no way to skip it) - an O(poses * restrictions) cost that scales
+	// directly with how many poses are excluded/restricted. This used to
+	// pay that cost TWICE per render: once via GetAnimationData, once more
+	// here for the struct data GetAnimationData's signature can't return
+	// (it overrides a base function). Fetching once and inlining
+	// GetAnimationData's own filter/recompute logic against that same
+	// result halves the cost of every page render, mode toggle, and
+	// backing-out repopulate.
+	AnimationIndex = `PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, AnimationPosesData, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
+	// Must apply the exact same filtering GetAnimationData would have, or
+	// the two arrays fall out of index-sync. The "Blacklist Poses" toggle
+	// shows everything unfiltered so already-excluded poses can still be
+	// seen/reviewed there; group-restrict mode and normal browsing both
+	// still filter out fully-excluded poses.
+	if (!bPoseBlacklistModeActive)
+	{
+		class'BD_PoseListFixer_MCMScreen'.static.FilterExcludedPoses(AnimationPosesData);
+
+		// Filtering shifts/removes indices, so the raw index above is
+		// stale - recompute it by name/offset match, same as
+		// GetAnimationData does.
+		AnimationIndex = INDEX_NONE;
+		for (i = 0; i < AnimationPosesData.Length; ++i)
+		{
+			if (AnimationPosesData[i].AnimationName == `PHOTOBOOTH.m_arrUnits[m_iLastTouchedSoldierIndex].AnimationName &&
+				AnimationPosesData[i].AnimationOffset == `PHOTOBOOTH.m_arrUnits[m_iLastTouchedSoldierIndex].AnimationOffset)
+			{
+				AnimationIndex = i;
+				break;
+			}
+		}
+	}
+
+	AnimationNames.Length = 0;
+	for (i = 0; i < AnimationPosesData.Length; ++i)
+	{
+		AnimationNames.AddItem(AnimationPosesData[i].AnimationDisplayName);
+	}
+
 	`log("Number of Poses:" @ AnimationNames.Length,,'BDLOG');
 	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
 	
@@ -357,21 +619,64 @@ function PopulatePoseList(out int Index)
 	}
 	`log("Building List:",,'BDLOG');
 	`log("Start index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex @ "End Index:" @ class'UIPoseFixHelpers'.default.UIPhotoboothPoseEndIndex @ "Anim Index:" @ AnimationIndex,,'BDLOG');
-	
-	for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
+
+	if (bPoseBlacklistModeActive || bGroupRestrictModeActive)
 	{
-		GetListItem(Index++).UpdateDataDescription(AnimationNames[i], OnConfirmPose); //bsg-jneal (5.16.17): now changing pose on selection change
+		BlacklistModePagePoses.Length = 0;
+		for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
+		{
+			if (bGroupRestrictModeActive)
+			{
+				GetListItem(Index++).UpdateDataCheckbox(AnimationNames[i], "",
+					class'BD_PoseListFixer_MCMScreen'.static.IsPoseGroupRestricted(AnimationPosesData[i].AnimationName, AnimationPosesData[i].AnimationOffset),
+					OnGroupRestrictCheckboxToggled);
+			}
+			else
+			{
+				GetListItem(Index++).UpdateDataCheckbox(AnimationNames[i], "",
+					class'BD_PoseListFixer_MCMScreen'.static.IsPoseExcluded(AnimationPosesData[i].AnimationName, AnimationPosesData[i].AnimationOffset),
+					OnPoseCheckboxToggled);
+			}
+			BlacklistModePagePoses.AddItem(AnimationPosesData[i]);
+		}
 	}
+	else
+	{
+		for (i = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex; i < endIndex; i++)
+		{
+			GetListItem(Index++).UpdateDataDescription(AnimationNames[i], OnConfirmPose); //bsg-jneal (5.16.17): now changing pose on selection change
+		}
+	}
+	// Defensively hide any leftover rows beyond this page's actual item
+	// count - the base game only fully clears the list when currentState
+	// changes (which toggling checkbox mode never does), so switching
+	// between a full page and a partial one via list-item reuse can leave
+	// stale rows visible. Only touches rows that already exist (List.GetItem,
+	// not GetListItem, which would spawn new ones).
+	for (i = Index; i < List.ItemCount; i++)
+	{
+		List.GetItem(i).Hide();
+	}
+	// Same hover-preview in both modes - independent of the checkbox click.
+	List.OnSelectionChanged = OnSetPose;
 
 	numPages = FCeil(float(AnimationNames.Length) / float(class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay));
 	currentPage = (class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex / class'UIPoseFixHelpers'.default.UIPhotoboothNumberOfPosesToDisplay) +1;
-	poseHeader = (m_PhotoboothTitle @ "[" $ currentPage $ "/" $ numPages $ "]");
+	if (bGroupRestrictModeActive)
+	{
+		poseHeader = (m_strPoseBlacklistHeader $ "-" $ m_strGroupRestrictPoses @ "[" $ currentPage $ "/" $ numPages $ "]");
+	}
+	else
+	{
+		poseHeader = ((bPoseBlacklistModeActive ? m_strPoseBlacklistHeader  $ "-" $  m_strBlacklistPoses : m_PhotoboothTitle) @ "[" $ currentPage $ "/" $ numPages $ "]");
+	}
 	SetCategory(poseHeader);
 	
 	//bsg-jneal (5.16.17): now changing pose on selection change so need to remember initial pose when cancelling menu
 	m_bOriginalSubListIndex = AnimationIndex;
-	List.OnSelectionChanged = OnSetPose;
 	//bsg-jneal (5.16.17): end
+
+	CachedFilteredAnimationPoses = AnimationPosesData;
 }
 
 simulated function CloseScreen()
@@ -382,7 +687,7 @@ simulated function CloseScreen()
 
 function int SetRandomAnimationPoseForSoldier(int LocationIndex, optional bool bPreventDuplicates = false, optional out array<AnimationPoses> arrAnimationsAlreadyUsed)
 {
-	local array<AnimationPoses> arrAnimations, arrOrigAnimations;
+	local array<AnimationPoses> arrAnimations, arrOrigAnimations, arrFiltered;
 	local int AnimationIndex, i, Rolls;
 	local XComGameState_Unit Unit;
 	local array<Photobooth_AnimationFilterType> ClassFilters; // Issue #309
@@ -393,6 +698,15 @@ function int SetRandomAnimationPoseForSoldier(int LocationIndex, optional bool b
 	if (LocationIndex >= 0 && LocationIndex < `PHOTOBOOTH.m_arrUnits.Length && `PHOTOBOOTH.m_arrUnits[locationIndex].UnitRef.ObjectID > 0)
 	{
 		`PHOTOBOOTH.GetAnimations(LocationIndex, arrOrigAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier, true);
+
+		// Skip blacklisted poses. Falls back to the unfiltered list if
+		// filtering would leave nothing to roll from.
+		arrFiltered = arrOrigAnimations;
+		class'BD_PoseListFixer_MCMScreen'.static.FilterExcludedPoses(arrFiltered);
+		if (arrFiltered.Length > 0)
+		{
+			arrOrigAnimations = arrFiltered;
+		}
 
 		Rolls = bPreventDuplicates ? 100 : 1;
 		while (--Rolls >= 0)
@@ -469,10 +783,80 @@ function GetAnimationData(int LocationIndex, out array<String> outAnimationNames
 
 	outAnimationIndex = `PHOTOBOOTH.GetAnimations(LocationIndex, arrAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
 
+	// "Blacklist Poses" toggle mode shows the full unfiltered list, so
+	// already-excluded poses can be seen/reviewed there. Group-restrict mode
+	// and normal browsing both still filter out fully-excluded poses.
+	if (!bPoseBlacklistModeActive)
+	{
+		class'BD_PoseListFixer_MCMScreen'.static.FilterExcludedPoses(arrAnimations);
+
+		// Filtering shifts/removes indices, so the soldier's current-pose
+		// index (from the unfiltered GetAnimations() call above) is now
+		// stale - recompute it by name/offset match against the filtered list.
+		outAnimationIndex = INDEX_NONE;
+		for (i = 0; i < arrAnimations.Length; ++i)
+		{
+			if (arrAnimations[i].AnimationName == `PHOTOBOOTH.m_arrUnits[LocationIndex].AnimationName &&
+				arrAnimations[i].AnimationOffset == `PHOTOBOOTH.m_arrUnits[LocationIndex].AnimationOffset)
+			{
+				outAnimationIndex = i;
+				break;
+			}
+		}
+	}
+
 	outAnimationNames.Length = 0;
 	for (i = 0; i < arrAnimations.Length; ++i)
 	{
 		outAnimationNames.AddItem(arrAnimations[i].AnimationDisplayName);
+	}
+}
+
+// Filters BD_PoseFixReview out of the formation list - it's an internal
+// review-only formation, not a real player choice. Same idea as
+// FilterExcludedPoses for the pose list.
+function GetFormationData(out array<String> outFormationNames, out int outFormationIndex)
+{
+	local array<X2PropagandaPhotoTemplate> arrFormations;
+	local int RawIndex, i;
+
+	RawIndex = `PHOTOBOOTH.GetFormations(arrFormations);
+	outFormationNames.Length = 0;
+	FormationListRealIndices.Length = 0;
+
+	for (i = 0; i < arrFormations.Length; ++i)
+	{
+		if (arrFormations[i].DataName == class'BD_PoseListFixer_MCMScreen'.const.REVIEW_FORMATION_NAME)
+		{
+			continue;
+		}
+		outFormationNames.AddItem(arrFormations[i].DisplayName);
+		FormationListRealIndices.AddItem(i);
+	}
+
+	// RawIndex is m_kFormationTemplate's position in the unfiltered array -
+	// remap to its position in the filtered list actually being displayed.
+	// Never matches the review formation itself: that's only ever swapped
+	// into m_kFormationTemplate directly, never selected through this list.
+	outFormationIndex = 0;
+	for (i = 0; i < FormationListRealIndices.Length; ++i)
+	{
+		if (FormationListRealIndices[i] == RawIndex)
+		{
+			outFormationIndex = i;
+			break;
+		}
+	}
+}
+
+// Base version indexes straight into `PHOTOBOOTH.GetFormations()` via
+// List.SelectedIndex - no longer valid once GetFormationData has skipped a
+// row, so remap through FormationListRealIndices instead.
+function OnSetFormation(UIList ContainerList, int ItemIndex)
+{
+	if (List.SelectedIndex >= 0 && List.SelectedIndex < FormationListRealIndices.Length)
+	{
+		SetFormation(FormationListRealIndices[List.SelectedIndex], true);
 	}
 }
 
@@ -598,6 +982,8 @@ function PopulateDefaultList(out int Index)
 	GetListItem(Index++).UpdateDataDescription(m_CategoryRandom @ m_PrefixPose, OnClickedRandomizePose);
 	GetListItem(Index++).UpdateDataSpinner(m_CategoryLayout @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot + 1), OnLayoutSlotChanged);
 	GetListItem(Index++).UpdateDataDescription(class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_CategoryLayout @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveLayout);
+	GetListItem(Index++).UpdateDataSpinner(m_CategoryBackground @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot + 1), OnBackgroundSlotChanged);
+	GetListItem(Index++).UpdateDataDescription(class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_CategoryBackground @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveBackground);
 	GetListItem(Index++).UpdateDataSpinner(m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY) == -1 ? m_CategoryRandom : string(class'UIPoseFix_SaveSquad'.static.GetSelectedSlot(class'UIPoseFix_SaveSquad'.const.CONTEXT_ARMORY) + 1), OnSquadSlotChanged);
 	GetListItem(Index++).UpdateDataDescription(class'UIMPShell_SquadEditor_Preset'.default.m_strReadyButtonText @ m_PrefixPose @ class'UIOptionsPCScreen'.default.m_strGraphicsLabel_Preset, OnClickedSaveSquad);
 }
@@ -658,21 +1044,144 @@ function OnSquadSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
 
 function OnClickedSaveLayout()
 {	
-	local array<FilterPosterOptions> arrFilters;
-
 	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
 	class'UIPoseFix_SaveLayout'.static.ClearArrays();
 	class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex = `PHOTOBOOTH.GetLayoutIndex();
 	class'UIPoseFix_SaveLayout'.default.PosterFonts = `PHOTOBOOTH.m_PosterFont;
 	class'UIPoseFix_SaveLayout'.default.PosterStringColors = `PHOTOBOOTH.m_PosterStringColors;
-	class'UIPoseFix_SaveLayout'.default.FirstPassFilterIndex = `PHOTOBOOTH.GetFirstPassFilters(arrFilters);
-	class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex = `PHOTOBOOTH.GetSecondPassFilters(arrFilters);
-	class'UIPoseFix_SaveLayout'.default.GradientColor1Index = `PHOTOBOOTH.m_iGradientColor1Index;
-	class'UIPoseFix_SaveLayout'.default.GradientColor2Index = `PHOTOBOOTH.m_iGradientColor2Index;
 	class'UIPoseFix_SaveLayout'.default.HidePoster = IsPosterTextHidden();
 
 	class'UIPoseFix_SaveLayout'.static.SaveCurrentToSlot(class'UIPoseFix_SaveLayout'.default.SelectedLayoutSlot);
 	class'UIPoseFix_SaveLayout'.static.SaveLayoutConfigs();
+}
+
+function OnBackgroundSlotChanged(UIListItemSpinner SpinnerControl, int Direction)
+{
+	local int NewSlot;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+	NewSlot = class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot + Direction;
+	if (NewSlot < -1)
+		NewSlot = class'UIPoseFix_SaveBackground'.static.GetNumSlots() - 1;
+	else if (NewSlot >= class'UIPoseFix_SaveBackground'.static.GetNumSlots())
+		NewSlot = -1;
+
+	class'UIPoseFix_SaveBackground'.static.SetSelectedSlot(NewSlot);
+	SpinnerControl.SetValue(NewSlot == -1 ? m_CategoryRandom : string(NewSlot + 1));
+	ApplyBackgroundSlot();
+}
+
+// Armory-only - captures everything about the background's current look:
+// which texture is selected, whether tint override is on, both tint
+// colours, and both filters. Deliberately separate from OnClickedSaveLayout
+// (see UIPoseFix_SaveBackground's own comment for why).
+function OnClickedSaveBackground()
+{
+	local array<BackgroundPosterOptions> arrBackgrounds;
+	local array<FilterPosterOptions> arrFilters;
+	local string TextureBareName;
+	local int i;
+
+	`SOUNDMGR.PlaySoundEvent("Play_MenuSelect");
+
+	// GetBackgrounds()'s own "which index is currently selected" detection
+	// relies on exact object-reference equality between
+	// m_kPhotoboothEffect.BackgroundTexture and each option's own
+	// BackgroundTexture - confirmed via testing to be unreliable in
+	// practice (the reference never matched, even for a background that's
+	// clearly a normal selectable entry). BackgroundName holds the full
+	// content path (Package.Group.ObjectName) used to request the texture
+	// archetype, while the texture's own object Name is just the bare leaf
+	// name - matching by "path ends with '.' + bare name" is reliable
+	// where reference-equality isn't.
+	`PHOTOBOOTH.GetBackgrounds(arrBackgrounds, ePBT_ALL);
+	class'UIPoseFix_SaveBackground'.default.SavedBackgroundIndex = INDEX_NONE;
+
+	if (`PHOTOBOOTH.m_kPhotoboothEffect.BackgroundTexture != none)
+	{
+		TextureBareName = string(`PHOTOBOOTH.m_kPhotoboothEffect.BackgroundTexture.Name);
+		for (i = 0; i < arrBackgrounds.Length; i++)
+		{
+			if (arrBackgrounds[i].BackgroundName == TextureBareName
+				|| Right(arrBackgrounds[i].BackgroundName, Len(TextureBareName) + 1) == ("." $ TextureBareName))
+			{
+				class'UIPoseFix_SaveBackground'.default.SavedBackgroundIndex = i;
+				break;
+			}
+		}
+	}
+	else
+	{
+		// No texture set at all - match the "None" entry by display name
+		// instead. This branch of GetBackgrounds' own detection doesn't
+		// depend on texture references, so it's not affected by the same
+		// unreliability.
+		for (i = 0; i < arrBackgrounds.Length; i++)
+		{
+			if (arrBackgrounds[i].BackgroundDisplayName == m_strEmptyOption)
+			{
+				class'UIPoseFix_SaveBackground'.default.SavedBackgroundIndex = i;
+				break;
+			}
+		}
+	}
+
+	class'UIPoseFix_SaveBackground'.default.bOverrideBackgroundTextureColor = `PHOTOBOOTH.m_kPhotoboothEffect.bOverrideBackgroundTextureColor;
+	class'UIPoseFix_SaveBackground'.default.GradientColor1Index = `PHOTOBOOTH.m_iGradientColor1Index;
+	class'UIPoseFix_SaveBackground'.default.GradientColor2Index = `PHOTOBOOTH.m_iGradientColor2Index;
+	class'UIPoseFix_SaveBackground'.default.FirstPassFilterIndex = `PHOTOBOOTH.GetFirstPassFilters(arrFilters);
+	class'UIPoseFix_SaveBackground'.default.SecondPassFilterIndex = `PHOTOBOOTH.GetSecondPassFilters(arrFilters);
+
+	class'UIPoseFix_SaveBackground'.static.SaveCurrentToSlot(class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot);
+	class'UIPoseFix_SaveBackground'.static.SaveBackgroundConfigs();
+}
+
+// Armory-only - see OnClickedSaveBackground. SetBackground (inherited from
+// UIPhotoboothBase) is called with bOverrideAllowTinting=true (its default)
+// so it doesn't touch the tint-override flag itself - that's restored
+// explicitly right after, from the saved slot rather than the
+// background's own preferred default.
+function bool ApplyBackgroundSlot()
+{
+	local array<BackgroundPosterOptions> arrBackgrounds;
+
+	if (!class'UIPoseFix_SaveBackground'.static.LoadFromSlot(class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot))
+	{
+		`log("PoseFix ApplyBackgroundSlot: slot" @ class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot @ "is empty, nothing to apply",,'BDLOG');
+		return false;
+	}
+
+	`log("PoseFix ApplyBackgroundSlot: slot" @ class'UIPoseFix_SaveBackground'.default.SelectedBackgroundSlot @ "loaded, applying background",,'BDLOG');
+
+	`PHOTOBOOTH.GetBackgrounds(arrBackgrounds, ePBT_ALL);
+	if (class'UIPoseFix_SaveBackground'.default.SavedBackgroundIndex >= 0
+		&& class'UIPoseFix_SaveBackground'.default.SavedBackgroundIndex < arrBackgrounds.Length)
+	{
+		SetBackground(class'UIPoseFix_SaveBackground'.default.SavedBackgroundIndex, ePBT_ALL);
+	}
+	`PHOTOBOOTH.SetBackgroundColorOverride(class'UIPoseFix_SaveBackground'.default.bOverrideBackgroundTextureColor);
+	`PHOTOBOOTH.SetGradientColorIndex1(class'UIPoseFix_SaveBackground'.default.GradientColor1Index);
+	`PHOTOBOOTH.SetGradientColorIndex2(class'UIPoseFix_SaveBackground'.default.GradientColor2Index);
+	`PHOTOBOOTH.SetFirstPassFilter(class'UIPoseFix_SaveBackground'.default.FirstPassFilterIndex);
+	`PHOTOBOOTH.SetSecondPassFilter(class'UIPoseFix_SaveBackground'.default.SecondPassFilterIndex);
+
+	NeedsPopulateData();
+	return true;
+}
+
+// Base UIArmory_Photobooth.RandomSetBackground() hardcodes ePBT_XCOM,
+// excluding Chosen-themed backgrounds (Warlock/Hunter/Assassin) from
+// random selection entirely - by design, matching the base game's own
+// intent that picking one is a deliberate choice, not something rolled at
+// random. Broadened to ePBT_ALL here so "Randomize Background" can pick
+// from everything that's manually selectable in Background Options.
+function RandomSetBackground()
+{
+	local array<string> ItemNames;
+	local int ItemIndex;
+
+	GetBackgroundData(ItemNames, ItemIndex, ePBT_ALL);
+	SetBackground(`SYNC_RAND(ItemNames.length), ePBT_ALL, false);
 }
 
 function OnClickedRandomizeBackground()
@@ -927,10 +1436,6 @@ function bool ApplyLayoutSlot()
 	// poster text stays as-is. Only styling is restored.
 	`PHOTOBOOTH.m_PosterFont = class'UIPoseFix_SaveLayout'.default.PosterFonts;
 	`PHOTOBOOTH.m_PosterStringColors = class'UIPoseFix_SaveLayout'.default.PosterStringColors;
-	`PHOTOBOOTH.SetFirstPassFilter(class'UIPoseFix_SaveLayout'.default.FirstPassFilterIndex);
-	`PHOTOBOOTH.SetSecondPassFilter(class'UIPoseFix_SaveLayout'.default.SecondPassFilterIndex);
-	`PHOTOBOOTH.SetGradientColorIndex1(class'UIPoseFix_SaveLayout'.default.GradientColor1Index);
-	`PHOTOBOOTH.SetGradientColorIndex2(class'UIPoseFix_SaveLayout'.default.GradientColor2Index);
 	`PHOTOBOOTH.SetLayoutIndex(class'UIPoseFix_SaveLayout'.default.SavedLayoutTemplateIndex);
 	NeedsPopulateData();
 
@@ -992,6 +1497,179 @@ function OnSelectPrevious(optional UIButton previousItemsButton)
 	}
 }
 
+function OnToggleBlacklistMode()
+{
+	if (currentState != eUIPropagandaType_Pose)
+	{
+		return;
+	}
+
+	bPoseBlacklistModeActive = !bPoseBlacklistModeActive;
+	bGroupRestrictModeActive = false;
+
+	// Turning the toggle off: excluding a pose doesn't retroactively change
+	// a soldier already wearing it - if that's what just happened, reroll a
+	// valid replacement rather than leaving them stuck on a pose that's now
+	// hidden from the normal list.
+	if (!bPoseBlacklistModeActive && class'BD_PoseListFixer_MCMScreen'.static.IsPoseExcluded(
+		`PHOTOBOOTH.m_arrUnits[m_iLastTouchedSoldierIndex].AnimationName,
+		`PHOTOBOOTH.m_arrUnits[m_iLastTouchedSoldierIndex].AnimationOffset))
+	{
+		SetRandomAnimationPoseForSoldier(m_iLastTouchedSoldierIndex);
+	}
+
+	List.OnSelectionChanged = none;
+	RefreshPoseModeListSelection();
+	NeedsPopulateData();
+}
+
+function OnToggleGroupRestrictMode()
+{
+	local X2PropagandaPhotoTemplateManager PhotoTemplateManager;
+	local X2PropagandaPhotoTemplate ReviewFormation;
+
+	if (currentState != eUIPropagandaType_Pose)
+	{
+		return;
+	}
+
+	bGroupRestrictModeActive = !bGroupRestrictModeActive;
+	bPoseBlacklistModeActive = false;
+
+	// Switch to a dedicated formation with no restrictions ever generated
+	// against it (see REVIEW_FORMATION_NAME), so RestrictedFromFormation()
+	// can't hide anything from this review list - restore the real
+	// formation on exit. m_kFormationTemplate has no custom setter/hook
+	// visible from source, so this should be a pure data-layer redirect for
+	// filtering purposes, not something that repositions pawns - worth
+	// confirming in-game.
+	PhotoTemplateManager = class'X2PropagandaPhotoTemplateManager'.static.GetPropagandaPhotoTemplateManager();
+	if (bGroupRestrictModeActive)
+	{
+		SavedFormationBeforeGroupRestrictReview = `PHOTOBOOTH.m_kFormationTemplate;
+		ReviewFormation = PhotoTemplateManager.FindUberTemplate("Formation", class'BD_PoseListFixer_MCMScreen'.const.REVIEW_FORMATION_NAME);
+		if (ReviewFormation != none)
+		{
+			`PHOTOBOOTH.m_kFormationTemplate = ReviewFormation;
+		}
+		else
+		{
+			`log("BD_PoseFixReview formation not found - add its +PhotoboothTemplateConfig entry to XComContent.ini. Group-restrict review will still work, but won't be immune to the currently-selected formation's own restrictions.",,'BDLOG');
+		}
+	}
+	else if (SavedFormationBeforeGroupRestrictReview != none)
+	{
+		// Flush what OnGroupRestrictCheckboxToggled deferred: one save,
+		// plus a sync of just this session's actual clicks (see
+		// FlushDirtyGroupPoseRestrictions) instead of both per click.
+		class'BD_PoseListFixer_MCMScreen'.static.PersistGroupRestrictions();
+		FlushDirtyGroupPoseRestrictions();
+
+		`PHOTOBOOTH.m_kFormationTemplate = SavedFormationBeforeGroupRestrictReview;
+		SavedFormationBeforeGroupRestrictReview = none;
+	}
+
+	List.OnSelectionChanged = none;
+	RefreshPoseModeListSelection();
+	NeedsPopulateData();
+}
+
+// Spawns the small list near the bottom of the pose screen: an unclickable
+// header row ("Pose Blacklist") plus one selectable row per edit mode.
+// Built once per pose-screen visit (PopulateData) and torn down when
+// backing out to SoldierData, same lifecycle the old buttons had.
+function BuildPoseModeList()
+{
+	PoseModeList = Spawn(class'UIList', self).InitList('poseModeList', 240, 910, 312, 150);
+	PoseModeList.bStickyHighlight = true;
+	Spawn(class'UIMechaListItem', PoseModeList.ItemContainer).InitListItem().UpdateDataDescription(
+		class'UIUtilities_Text'.static.AlignCenter(Caps(m_strPoseBlacklistHeader $ " - " $ m_strBlacklistPoses)), OnToggleBlacklistMode);
+	Spawn(class'UIMechaListItem', PoseModeList.ItemContainer).InitListItem().UpdateDataDescription(
+		class'UIUtilities_Text'.static.AlignCenter(Caps(m_strPoseBlacklistHeader $ " - " $ m_strGroupRestrictPoses)), OnToggleGroupRestrictMode);
+	RefreshPoseModeListSelection();
+}
+
+// Highlights whichever mode row (if any) is currently active, so the list
+// itself shows which edit mode is on instead of relying on a separate
+// pressed/unpressed button state.
+function RefreshPoseModeListSelection()
+{
+	if (PoseModeList == none)
+	{
+		return;
+	}
+
+	if (bPoseBlacklistModeActive)
+	{
+		PoseModeList.SetSelectedIndex(0);
+	}
+	else if (bGroupRestrictModeActive)
+	{
+		PoseModeList.SetSelectedIndex(1);
+	}
+	else
+	{
+		PoseModeList.SetSelectedIndex(INDEX_NONE);
+	}
+}
+
+// Maps a checkbox to its pose via row position, writes straight to the
+// persisted blacklist - each toggle is immediately durable.
+function OnPoseCheckboxToggled(UICheckbox CheckboxControl)
+{
+	local int RowIndex;
+
+	RowIndex = List.GetItemIndex(CheckboxControl);
+	if (RowIndex < 0 || RowIndex >= BlacklistModePagePoses.Length)
+	{
+		return;
+	}
+
+	class'BD_PoseListFixer_MCMScreen'.static.SetPoseExcluded(
+		BlacklistModePagePoses[RowIndex].AnimationName,
+		BlacklistModePagePoses[RowIndex].AnimationOffset,
+		CheckboxControl.bChecked);
+}
+
+// Same mapping as OnPoseCheckboxToggled, but writes to GroupPoseRestrictions.
+// Doesn't persist or sync live per click - the checkbox's own visual state
+// reads from the persisted list directly, so both are safe to defer until
+// review mode exits (OnToggleGroupRestrictMode).
+function OnGroupRestrictCheckboxToggled(UICheckbox CheckboxControl)
+{
+	local int RowIndex, i;
+	local bool bAlreadyDirty;
+
+	RowIndex = List.GetItemIndex(CheckboxControl);
+	if (RowIndex < 0 || RowIndex >= BlacklistModePagePoses.Length)
+	{
+		return;
+	}
+
+	class'BD_PoseListFixer_MCMScreen'.static.SetPoseGroupRestricted(
+		BlacklistModePagePoses[RowIndex].AnimationName,
+		BlacklistModePagePoses[RowIndex].AnimationOffset,
+		CheckboxControl.bChecked,
+		false);
+
+	// Track which pose changed so the mode-exit flush only has to sync
+	// this session's actual clicks, not every restriction that exists.
+	bAlreadyDirty = false;
+	for (i = 0; i < DirtyGroupRestrictPoses.Length; i++)
+	{
+		if (DirtyGroupRestrictPoses[i].AnimationName == BlacklistModePagePoses[RowIndex].AnimationName
+			&& DirtyGroupRestrictPoses[i].AnimationOffset == BlacklistModePagePoses[RowIndex].AnimationOffset)
+		{
+			bAlreadyDirty = true;
+			break;
+		}
+	}
+	if (!bAlreadyDirty)
+	{
+		DirtyGroupRestrictPoses.AddItem(BlacklistModePagePoses[RowIndex]);
+	}
+}
+
 function OnDefaultListChange(UIList ContainerList, int ItemIndex)
 {
 	class'UIPoseFixHelpers'.default.UIPhotoboothPoseOffset = class'UIPoseFixHelpers'.default.UIPhotoboothPoseStartIndex;
@@ -1008,11 +1686,6 @@ function OnConfirmPose()
 
 function OnCancel()
 {
-
-	local array<AnimationPoses> arrAnimations;
-
-	`PHOTOBOOTH.GetAnimations(m_iLastTouchedSoldierIndex, arrAnimations, , class'UIPoseFixHelpers'.default.enableMemorialPoseFiltering && DefaultSetupSettings.TextLayoutState == ePBTLS_DeadSoldier);
-
 	if (bWaitingOnPhoto)
 		return;
 
@@ -1028,7 +1701,18 @@ function OnCancel()
 	case eUIPropagandaType_Pose:
 		//bsg-jneal (5.16.17): now changing pose on selection change so need to remember initial pose when cancelling menu
 		//List.SetSelectedIndex(m_bOriginalSubListIndex);
-		`PHOTOBOOTH.SetSoldierAnim(m_iLastTouchedSoldierIndex, arrAnimations[class'UIPoseFixHelpers'.default.UIPhotoboothPoseOffset + m_bOriginalSubListIndex].AnimationName, arrAnimations[class'UIPoseFixHelpers'.default.UIPhotoboothPoseOffset + m_bOriginalSubListIndex].AnimationOffset);
+		// Uses PopulatePoseList's cache (CachedFilteredAnimationPoses)
+		// instead of a fresh GetAnimations() call - this was previously
+		// fetched unconditionally at the top of OnCancel for every single
+		// Cancel/Back press throughout the whole photobooth, even though
+		// it's only ever used here. The cache already reflects whatever
+		// filtering was applied when the pose list was last rendered,
+		// matching the same filtered space m_bOriginalSubListIndex was
+		// captured in.
+		if (m_bOriginalSubListIndex >= 0 && m_bOriginalSubListIndex < CachedFilteredAnimationPoses.Length)
+		{
+			`PHOTOBOOTH.SetSoldierAnim(m_iLastTouchedSoldierIndex, CachedFilteredAnimationPoses[m_bOriginalSubListIndex].AnimationName, CachedFilteredAnimationPoses[m_bOriginalSubListIndex].AnimationOffset);
+		}
 		//List.SetSelectedIndex(m_bOriginalSubListIndex);
 		List.OnSelectionChanged = none;		
 		//bsg-jneal (5.16.17): end

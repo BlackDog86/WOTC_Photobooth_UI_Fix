@@ -1,5 +1,9 @@
 class UISL_NMD_Photobooth extends UIScreenListener;
 
+// Stashed between OnInit and HookPosterButtonDelegate firing a tick later -
+// see OnInit's comment.
+var UIMissionSummary PendingMissionSummaryScreen;
+
 event OnInit(UIScreen Screen)
 {
     local XComPresentationLayer Pres;
@@ -44,6 +48,70 @@ event OnInit(UIScreen Screen)
 		MyPreviousButton.OnClickedDelegate = PreviousWrapper.PreviousButtonPassIndex;
 		}
 	}
+
+	if (UIMissionSummary(Screen) != none)
+	{
+		// NMD's own OnInit also runs on this screen and assigns
+		// m_PosterButton.OnClickedDelegate itself - both listeners' OnInit
+		// calls happen synchronously in the same pass, so whichever runs
+		// second wins regardless of what we do here directly. Deferring by
+		// a tick (same `BATTLE.SetTimer idiom NMD's own DelayedInit uses)
+		// guarantees we install our hook after every OnInit has finished,
+		// on the screen's very first appearance - OnReceiveFocus below
+		// only fires on later re-focuses, never before the player's first
+		// possible click.
+		PendingMissionSummaryScreen = UIMissionSummary(Screen);
+		`BATTLE.SetTimer(0.1, false, nameof(HookPosterButtonDelegate), self);
+	}
+}
+
+// See OnInit's comment above.
+function HookPosterButtonDelegate()
+{
+	if (PendingMissionSummaryScreen != none)
+	{
+		InstallPosterButtonWrapper(PendingMissionSummaryScreen);
+		PendingMissionSummaryScreen = none;
+	}
+}
+
+// OnReceiveFocus fires after a screen's own OnInit has finished whenever
+// focus returns to it (e.g. after the photobooth closes) - not on the
+// screen's first appearance, which OnInit's deferred hook above covers
+// instead. NMD's own OnReceiveFocus doesn't touch this button, so hooking
+// it here is safe regardless of which listener's OnInit ran first.
+event OnReceiveFocus(UIScreen Screen)
+{
+	local UIMissionSummary MissionSummaryScreen;
+
+	MissionSummaryScreen = UIMissionSummary(Screen);
+	if (MissionSummaryScreen != none)
+	{
+		InstallPosterButtonWrapper(MissionSummaryScreen);
+	}
+}
+
+// Shared by both hook points above.
+function InstallPosterButtonWrapper(UIMissionSummary MissionSummaryScreen)
+{
+	local UIPoseFix_PosterButtonWrapper PosterWrapper;
+
+	if (MissionSummaryScreen.m_PosterButton == none)
+	{
+		return;
+	}
+
+	PosterWrapper = new class'UIPoseFix_PosterButtonWrapper';
+	PosterWrapper.MissionSummary = MissionSummaryScreen;
+	MissionSummaryScreen.m_PosterButton.OnClickedDelegate = PosterWrapper.OnPosterButtonClicked;
+
+	// UITactical_Photobooth.CloseScreen() calls MissionSummary.CloseScreenTakePhoto()
+	// on exit whenever MissionSummary is still in the screen stack - true
+	// here, since NMD keeps it there (hidden) rather than popping it.
+	// CloseScreenTakePhoto() sets bClosingScreen=true and nothing ever
+	// resets it, so CloseThenOpenPhotographerScreen()'s own bClosingScreen
+	// guard would silently no-op every subsequent click without this.
+	MissionSummaryScreen.bClosingScreen = false;
 }
 
 function GetNextSoldier()

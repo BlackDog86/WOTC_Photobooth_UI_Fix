@@ -11,11 +11,11 @@ var config string			lastBline;
 var config string			lastAline;
 var config string			lastOpline;
 var config bool				hasOpline;
-// Visual styling captured/restored by the layout slots
-var config int				FirstPassFilterIndex;
-var config int				SecondPassFilterIndex;
-var config int				GradientColor1Index;
-var config int				GradientColor2Index;
+// Visual styling captured/restored by the layout slots - deliberately just
+// the poster template and text styling. Background texture/tint/filters
+// are a separate concept (see UIPoseFix_SaveBackground) - they used to
+// live here too, which meant switching layout also silently changed the
+// background's look.
 var config bool				HidePoster;
 
 // Named layout slots. A slot snapshots everything above (except the live
@@ -26,10 +26,6 @@ struct native SavedLayoutSlot
 	var int				SavedLayoutTemplateIndex;
 	var array<string>	PosterFonts;
 	var array<int>		PosterStringColors;
-	var int				FirstPassFilterIndex;
-	var int				SecondPassFilterIndex;
-	var int				GradientColor1Index;
-	var int				GradientColor2Index;
 	var bool			HidePoster;
 };
 
@@ -101,10 +97,6 @@ static function SaveCurrentToSlot(int SlotIndex)
 	NewSlot.SavedLayoutTemplateIndex = default.SavedLayoutTemplateIndex;
 	NewSlot.PosterFonts = default.PosterFonts;
 	NewSlot.PosterStringColors = default.PosterStringColors;
-	NewSlot.FirstPassFilterIndex = default.FirstPassFilterIndex;
-	NewSlot.SecondPassFilterIndex = default.SecondPassFilterIndex;
-	NewSlot.GradientColor1Index = default.GradientColor1Index;
-	NewSlot.GradientColor2Index = default.GradientColor2Index;
 	NewSlot.HidePoster = default.HidePoster;
 
 	default.SavedLayouts[SlotIndex] = NewSlot;
@@ -123,10 +115,6 @@ static function bool LoadFromSlot(int SlotIndex)
 	default.SavedLayoutTemplateIndex = default.SavedLayouts[SlotIndex].SavedLayoutTemplateIndex;
 	default.PosterFonts = default.SavedLayouts[SlotIndex].PosterFonts;
 	default.PosterStringColors = default.SavedLayouts[SlotIndex].PosterStringColors;
-	default.FirstPassFilterIndex = default.SavedLayouts[SlotIndex].FirstPassFilterIndex;
-	default.SecondPassFilterIndex = default.SavedLayouts[SlotIndex].SecondPassFilterIndex;
-	default.GradientColor1Index = default.SavedLayouts[SlotIndex].GradientColor1Index;
-	default.GradientColor2Index = default.SavedLayouts[SlotIndex].GradientColor2Index;
 	default.HidePoster = default.SavedLayouts[SlotIndex].HidePoster;
 
 	SaveLayoutConfigs();

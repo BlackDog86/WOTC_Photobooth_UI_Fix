@@ -1,0 +1,9 @@
+[UIArmory_Photobooth_PoseFix]
+m_strBlacklistPoses="모든 진형"
+m_strGroupRestrictPoses="그룹 진형"
+m_strPoseBlacklistHeader="제외"
+
+[UITactical_Photobooth_PoseFix]
+m_strBlacklistPoses="모든 진형"
+m_strGroupRestrictPoses="그룹 진형"
+m_strPoseBlacklistHeader="제외"

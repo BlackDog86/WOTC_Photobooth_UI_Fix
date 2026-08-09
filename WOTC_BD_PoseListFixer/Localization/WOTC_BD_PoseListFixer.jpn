@@ -1,0 +1,9 @@
+[UIArmory_Photobooth_PoseFix]
+m_strBlacklistPoses="全編成"
+m_strGroupRestrictPoses="グループ編成"
+m_strPoseBlacklistHeader="除外"
+
+[UITactical_Photobooth_PoseFix]
+m_strBlacklistPoses="全編成"
+m_strGroupRestrictPoses="グループ編成"
+m_strPoseBlacklistHeader="除外"
